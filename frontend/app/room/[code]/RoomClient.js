@@ -31,9 +31,15 @@ export default function RoomClient({ code }) {
   
   // Floating emoji state
   const [floatingEmojis, setFloatingEmojis] = useState([]);
+  const floatingEmojisSetterRef = useRef(setFloatingEmojis);
+  floatingEmojisSetterRef.current = setFloatingEmojis;
+  const playerBoxRefs = useRef({}); // map: playerId -> DOM element
+  const emojiTimersRef = useRef([]); // track all active emoji/chat timeouts for cleanup
+  const [chatInput, setChatInput] = useState('');
   
   // Connection states
   const [connected, setConnected] = useState(false);
+  const [socketId, setSocketId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -54,6 +60,7 @@ export default function RoomClient({ code }) {
 
     socket.on('connect', () => {
       setConnected(true);
+      setSocketId(socket.id);
       if (code === 'new') {
         socket.emit('create_room', { playerName: name, playerId });
       } else {
@@ -76,6 +83,11 @@ export default function RoomClient({ code }) {
 
     socket.on('room_updated', (updatedPlayers) => {
       setPlayers(updatedPlayers);
+      // Remove stale playerBoxRefs for players no longer in the room
+      const activeIds = new Set(updatedPlayers.map(p => p.id));
+      Object.keys(playerBoxRefs.current).forEach(id => {
+        if (!activeIds.has(id)) delete playerBoxRefs.current[id];
+      });
     });
 
     socket.on('game_started', (state) => {
@@ -92,7 +104,21 @@ export default function RoomClient({ code }) {
     });
 
     socket.on('emoji_received', ({ playerId: senderId, emoji }) => {
-      triggerFloatingEmoji(senderId, emoji);
+      console.log('CLIENT: emoji_received', { senderId, emoji });
+      const id = `${Date.now()}${Math.random()}`;
+      const left = Math.random() * 40 - 20;
+      floatingEmojisSetterRef.current(prev => [...prev, { id, playerId: senderId, emoji, left, isChat: false }]);
+      const t = setTimeout(() => floatingEmojisSetterRef.current(prev => prev.filter(e => e.id !== id)), 2500);
+      emojiTimersRef.current.push(t);
+    });
+
+    socket.on('chat_received', ({ playerId: senderId, message }) => {
+      console.log('CLIENT: chat_received', { senderId, message });
+      const id = `${Date.now()}${Math.random()}`;
+      const left = Math.random() * 40 - 20;
+      floatingEmojisSetterRef.current(prev => [...prev, { id, playerId: senderId, emoji: message, left, isChat: true }]);
+      const t = setTimeout(() => floatingEmojisSetterRef.current(prev => prev.filter(e => e.id !== id)), 3500);
+      emojiTimersRef.current.push(t);
     });
 
     socket.on('error_message', (msg) => {
@@ -101,28 +127,30 @@ export default function RoomClient({ code }) {
 
     socket.on('disconnect', () => {
       setConnected(false);
+      setSocketId(null);
     });
 
     return () => {
+      // Cancel all pending emoji/chat timers before unmounting
+      emojiTimersRef.current.forEach(t => clearTimeout(t));
+      emojiTimersRef.current = [];
       socket.disconnect();
     };
   }, [code, router]);
 
-  const triggerFloatingEmoji = (senderId, emoji) => {
-    const id = Date.now() + Math.random().toString();
-    const leftOffset = Math.random() * 40 - 20;
-    const newEmoji = { id, playerId: senderId, emoji, left: leftOffset };
-    
-    setFloatingEmojis(prev => [...prev, newEmoji]);
-    
-    setTimeout(() => {
-      setFloatingEmojis(prev => prev.filter(e => e.id !== id));
-    }, 2500);
-  };
 
   const handleSendEmoji = (emoji) => {
     if (socketRef.current && connected) {
       socketRef.current.emit('send_emoji', { roomCode, emoji });
+    }
+  };
+
+  const handleSendChat = (e) => {
+    e?.preventDefault();
+    if (!chatInput.trim()) return;
+    if (socketRef.current && connected) {
+      socketRef.current.emit('send_chat', { roomCode, message: chatInput.trim() });
+      setChatInput('');
     }
   };
 
@@ -192,7 +220,7 @@ export default function RoomClient({ code }) {
 
     // 2. Transfer State active (selecting own card to give away)
     if (gameState.overloadTransferState) {
-      if (gameState.overloadTransferState.sourcePlayerId === socketRef.current?.id) {
+      if (gameState.overloadTransferState.sourcePlayerId === socketId) {
         setTransferCardIndex(idx);
       }
       return;
@@ -200,7 +228,7 @@ export default function RoomClient({ code }) {
 
     // 3. Turn action checks
     if (isMyTurn()) {
-      if (gameState.actionState.type === 'peek' && gameState.actionState.sourcePlayerId === socketRef.current?.id) {
+      if (gameState.actionState.type === 'peek' && gameState.actionState.sourcePlayerId === socketId) {
         if (socketRef.current) {
           socketRef.current.emit('execute_action', { roomCode, actionData: { cardIndex: idx } }, (response) => {
             if (response.success) {
@@ -212,7 +240,7 @@ export default function RoomClient({ code }) {
         return;
       }
 
-      if ((gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketRef.current?.id) {
+      if ((gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketId) {
         setSwapMyCardIndex(idx);
         return;
       }
@@ -230,13 +258,13 @@ export default function RoomClient({ code }) {
     }
 
     // 4. Otherwise: Select for Overload! (Slapping card out-of-turn or during turn when not matching replace)
-    setOverloadSelect({ playerId: socketRef.current?.id, cardIndex: idx });
+    setOverloadSelect({ playerId: socketId, cardIndex: idx });
   };
 
   const handleOpponentCardClick = (targetPlayerId, cardIndex) => {
     if (!gameState) return;
 
-    if (gameState.actionState.type !== 'none' && gameState.actionState.sourcePlayerId === socketRef.current?.id) {
+    if (gameState.actionState.type !== 'none' && gameState.actionState.sourcePlayerId === socketId) {
       if (gameState.actionState.type === 'spy') {
         if (socketRef.current) {
           socketRef.current.emit('execute_action', { 
@@ -323,19 +351,19 @@ export default function RoomClient({ code }) {
   };
 
   const getSelfPlayer = () => {
-    return gameState?.players.find(p => p.id === socketRef.current?.id) || 
-           players.find(p => p.id === socketRef.current?.id);
+    return gameState?.players.find(p => p.id === socketId) || 
+           players.find(p => p.id === socketId);
   };
 
   const getOpponents = () => {
-    if (!gameState) return players.filter(p => p.id !== socketRef.current?.id);
-    return gameState.players.filter(p => p.id !== socketRef.current?.id);
+    if (!gameState) return players.filter(p => p.id !== socketId);
+    return gameState.players.filter(p => p.id !== socketId);
   };
 
   const isMyTurn = () => {
     if (!gameState || gameState.status !== 'playing') return false;
     const activePlayer = gameState.players[gameState.turnIndex];
-    return activePlayer && activePlayer.id === socketRef.current?.id;
+    return activePlayer && activePlayer.id === socketId;
   };
 
   const getActivePlayerName = () => {
@@ -450,11 +478,11 @@ export default function RoomClient({ code }) {
 
   if (errorMsg) {
     return (
-      <main className="flex-center" style={{ minHeight: '100vh', padding: '24px' }}>
-        <div className="glass glass-card" style={{ maxWidth: '400px', width: '100%', textAlign: 'center' }}>
-          <h2 style={{ color: 'var(--color-rose)', fontWeight: 800, fontSize: '1.5rem', marginBottom: '16px' }}>Error</h2>
-          <p style={{ color: 'var(--foreground-muted)', marginBottom: '24px' }}>{errorMsg}</p>
-          <button onClick={handleBackToLobby} className="button-glow" style={{ width: '100%' }}>Back to Home</button>
+      <main className="flex items-center justify-center min-h-screen p-6">
+        <div className="glass glass-card max-w-[400px] w-full text-center p-6 rounded-2xl">
+          <h2 className="text-rose-500 font-extrabold text-2xl mb-4">Error</h2>
+          <p className="text-gray-400 mb-6">{errorMsg}</p>
+          <button onClick={handleBackToLobby} className="button-glow w-full">Back to Home</button>
         </div>
       </main>
     );
@@ -463,52 +491,45 @@ export default function RoomClient({ code }) {
   // --- LOBBY SCREEN ---
   if (!gameState || gameState.status === 'lobby') {
     return (
-      <main className="flex-center" style={{ minHeight: '100vh', padding: '24px' }}>
-        <div className="glass glass-card" style={{ maxWidth: '540px', width: '100%', borderRadius: '24px' }}>
+      <main className="flex items-center justify-center min-h-screen p-6">
+        <div className="glass glass-card max-w-[540px] w-full rounded-3xl p-6 md:p-8">
           
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
+          <div className="flex justify-between items-start mb-8">
             <div>
-              <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Game Lobby</h2>
-              <p style={{ color: 'var(--foreground-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+              <h2 className="text-2xl font-extrabold">Game Lobby</h2>
+              <p className="text-gray-400 text-sm mt-1">
                 {connected ? 'Waiting for players...' : 'Connecting to server...'}
               </p>
             </div>
             
-            <div onClick={copyRoomCode} style={{ cursor: 'pointer', textAlign: 'right' }}>
-              <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--foreground-muted)', fontWeight: 600, letterSpacing: '0.05em' }}>Room Code</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
-                <span style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-cyan)', letterSpacing: '0.05em' }}>{roomCode}</span>
-                <span style={{ fontSize: '1.1rem' }}>{copied ? '✅' : '📋'}</span>
+            <div onClick={copyRoomCode} className="cursor-pointer text-right">
+              <span className="text-xs uppercase text-gray-400 font-semibold tracking-wider">Room Code</span>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-3xl font-extrabold text-cyan-500 tracking-wider">{roomCode}</span>
+                <span className="text-lg">{copied ? '✅' : '📋'}</span>
               </div>
             </div>
           </div>
 
-          <div style={{ marginBottom: '32px' }}>
-            <h3 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--foreground-muted)', letterSpacing: '0.1em', marginBottom: '12px', fontWeight: 700 }}>
+          <div className="mb-8">
+            <h3 className="text-xs uppercase text-gray-400 tracking-widest mb-3 font-bold">
               Joined Players ({players.length}/6)
             </h3>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="flex flex-col gap-2.5">
               {players.map((p) => (
                 <div 
                   key={p.playerId} 
-                  className="glass" 
-                  style={{ 
-                    padding: '12px 16px', 
-                    borderRadius: '12px', 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    borderLeft: p.isHost ? '3px solid var(--color-gold)' : '1px solid var(--border-glass)'
-                  }}
+                  className="glass p-3 px-4 rounded-xl flex justify-between items-center"
+                  style={{ borderLeft: p.isHost ? '3px solid var(--color-gold)' : '1px solid var(--border-glass)' }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div className="flex items-center gap-2.5">
                     <div className="status-dot online"></div>
-                    <span style={{ fontWeight: 600 }}>{p.name} {p.id === socketRef.current?.id && '(You)'}</span>
+                    <span className="font-semibold">{p.name} {p.id === socketId && '(You)'}</span>
                   </div>
                   
                   {p.isHost && (
-                    <span style={{ fontSize: '0.75rem', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--color-gold)', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>
+                    <span className="text-xs bg-amber-500/15 text-amber-500 px-2 py-0.5 rounded-full font-bold">
                       HOST
                     </span>
                   )}
@@ -517,23 +538,22 @@ export default function RoomClient({ code }) {
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="flex flex-col gap-4">
             {isHost ? (
               <button 
                 onClick={handleStartGame} 
-                className="button-glow" 
-                style={{ width: '100%', padding: '14px' }}
+                className="button-glow w-full py-3.5"
                 disabled={players.length < 2 || !connected}
               >
                 {players.length < 2 ? 'Need at least 2 players' : 'Start CABO Game'}
               </button>
             ) : (
-              <div className="banner" style={{ background: 'rgba(6, 182, 212, 0.1)', color: 'var(--color-cyan)', fontSize: '0.95rem' }}>
+              <div className="banner bg-cyan-500/10 text-cyan-400 text-sm p-4 rounded-xl text-center">
                 Waiting for the host to start the game...
               </div>
             )}
             
-            <button onClick={handleBackToLobby} className="button-outline" style={{ width: '100%' }}>
+            <button onClick={handleBackToLobby} className="button-outline w-full">
               Leave Room
             </button>
           </div>
@@ -550,9 +570,59 @@ export default function RoomClient({ code }) {
   const isMyTurnActive = isMyTurn();
   const canDraw = isMyTurnActive && gameState.status === 'playing' && !gameState.activeDrawnCard;
 
+  console.log('=== CLIENT RENDER DEBUG ===', {
+    socketId: socketId,
+    selfPlayerId: selfPlayer?.id,
+    selfPlayerPersistentId: selfPlayer?.playerId,
+    opponents: opponents.map(o => ({ id: o.id, name: o.name, playerId: o.playerId })),
+    floatingEmojis
+  });
+
+  // Helper: get fixed-position coords for a player's box
+  // Returns both a 'top' anchor (for emojis) and a 'nameY' anchor (for chat bubbles near the name)
+  const getBubblePosition = (playerId) => {
+    const el = playerBoxRefs.current[playerId];
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,    // horizontal center of box
+      emojiY: rect.top + 10,             // near top of box — emoji floats up from here
+      chatY: rect.top + rect.height * 0.38, // ~name/avatar area — speech bubble anchors here
+      boxRight: rect.right,              // right edge for offset
+      boxWidth: rect.width,
+    };
+  };
+
   return (
     <div className="game-table">
       
+      {/* Fixed floating bubble layer — outside all overflow/backdrop-filter containers */}
+      <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: 9999 }}>
+        {floatingEmojis.map(e => {
+          const pos = getBubblePosition(e.playerId);
+          if (!pos) return null;
+          // Chat bubble: anchors beside the player name (right-of-center), gentle hover
+          // Emoji: floats up from the top of the player box
+          const left = e.isChat
+            ? pos.x + pos.boxWidth * 0.28 + e.left   // right side of box
+            : pos.x + e.left;                          // center for emojis
+          const top = e.isChat ? pos.chatY : pos.emojiY;
+          return (
+            <span
+              key={e.id}
+              className={e.isChat ? 'floating-chat-bubble' : 'floating-emoji'}
+              style={{
+                position: 'fixed',
+                left: `${left}px`,
+                top: `${top}px`,
+              }}
+            >
+              {e.emoji}
+            </span>
+          );
+        })}
+      </div>
+
       {/* 1. Opponent Ring */}
       <div className="opponents-container">
         {opponents.map((opponent) => {
@@ -560,14 +630,13 @@ export default function RoomClient({ code }) {
           const isCaboCaller = gameState.caboPlayerId === opponent.id;
           
           return (
-            <div key={opponent.id || opponent.playerId} className={`glass opponent-box ${isActive ? 'active' : ''}`} style={{ position: 'relative' }}>
+            <div
+              key={opponent.id || opponent.playerId}
+              ref={el => { playerBoxRefs.current[opponent.id] = el; }}
+              className={`glass opponent-box ${isActive ? 'active' : ''}`}
+              style={{ position: 'relative' }}
+            >
               
-              {floatingEmojis.filter(e => e.playerId === opponent.playerId).map(e => (
-                <span key={e.id} className="floating-emoji" style={{ left: `calc(50% + ${e.left}px)`, top: '-10px' }}>
-                  {e.emoji}
-                </span>
-              ))}
-
               <div className="player-avatar">
                 {opponent.name.charAt(0).toUpperCase()}
                 {!opponent.active && (
@@ -671,200 +740,138 @@ export default function RoomClient({ code }) {
         })}
       </div>
 
-      {/* 2. Central Area */}
-      <div className="center-board">
+      {/* 2. Middle Row (Side Panels + Roundtable) */}
+      <div className="w-full flex items-center justify-center gap-6 max-w-[1100px] mx-auto my-2">
         
-        {/* Draw Pile */}
-        <div className="pile-container">
-          <span className="pile-label">Draw Pile ({gameState.deckCount})</span>
-          <div 
-            onClick={handleDrawDeck}
-            className={`card-container ${canDraw ? 'interactive' : ''}`}
-            style={{ 
-              pointerEvents: canDraw ? 'auto' : 'none',
-              filter: canDraw ? 'none' : 'brightness(0.7)'
-            }}
-          >
-            <div className="card-inner">
-              <div className="card-face card-back" style={{ border: canDraw ? '2.5px solid var(--color-cyan)' : '1.5px solid var(--border-glass)' }}>
-                <div className="card-back-pattern">♠</div>
-              </div>
-            </div>
+        {/* Left Panel: Quick Reactions */}
+        <div className="glass p-3.5 rounded-2xl w-[190px] flex flex-col gap-2 shrink-0 border border-white/5 shadow-lg">
+          <span className="text-[0.75rem] uppercase text-gray-400 font-bold block mb-1 text-center tracking-wider border-b border-white/5 pb-1.5">
+            Quick Reactions
+          </span>
+          <div className="grid grid-cols-3 gap-2.5 justify-items-center py-1">
+            {EMOJIS.map(e => (
+              <button 
+                key={e} 
+                onClick={() => handleSendEmoji(e)} 
+                className="glass flex items-center justify-center w-10 h-10 rounded-full border border-white/20 bg-white/5 cursor-pointer text-xl transition-all duration-150 ease-in-out hover:scale-110 hover:bg-white/10"
+              >
+                {e}
+              </button>
+            ))}
           </div>
+          <form onSubmit={handleSendChat} className="flex gap-1.5 mt-1">
+            <input 
+              type="text" 
+              placeholder="Type message..." 
+              className="glass-input flex-1 px-2 py-1 text-xs" 
+              style={{ borderRadius: '8px' }}
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              maxLength={40}
+            />
+            <button type="submit" className="button-glow px-2.5 py-1 text-xs rounded-lg">
+              Send
+            </button>
+          </form>
         </div>
 
-        {/* Drawn Card */}
-        {gameState.activeDrawnCard && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--color-cyan)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              Drawn Card
-            </span>
-            <div className="animate-draw">
-              {renderCard(gameState.activeDrawnCard, null, false, false)}
-            </div>
-            
-            {isMyTurnActive && (
-              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                {gameState.drawnCardSource === 'deck' && (
-                  <>
-                    <button 
-                      onClick={() => handleDiscardDrawn(false)} 
-                      className="button-outline"
-                      style={{ padding: '6px 12px', fontSize: '0.8rem', borderRadius: '8px' }}
-                    >
-                      Discard
-                    </button>
-                    {gameState.activeDrawnCard.action !== 'none' && (
-                      <button 
-                        onClick={() => handleDiscardDrawn(true)} 
-                        className="button-glow"
-                        style={{ padding: '6px 12px', fontSize: '0.8rem', borderRadius: '8px', background: 'linear-gradient(135deg, var(--color-emerald) 0%, var(--color-cyan) 100%)', boxShadow: 'none' }}
-                      >
-                        Discard & Act
-                      </button>
-                    )}
-                  </>
-                )}
-                {gameState.drawnCardSource === 'discard' && (
-                  <span style={{ fontSize: '0.8rem', color: 'var(--foreground-muted)', fontWeight: 600 }}>Replace hand card</span>
-                )}
+        {/* Center: Play Area */}
+        <div className="center-board">
+          
+          {/* Draw Pile */}
+          <div className="flex flex-col items-center gap-2">
+            <span className="text-xs uppercase text-gray-400 tracking-wider font-semibold">Draw Pile ({gameState.deckCount})</span>
+            <div 
+              onClick={handleDrawDeck}
+              className={`card-container ${canDraw ? 'interactive' : ''}`}
+              style={{ 
+                pointerEvents: canDraw ? 'auto' : 'none',
+                filter: canDraw ? 'none' : 'brightness(0.7)'
+              }}
+            >
+              <div className="card-inner">
+                <div className="card-face card-back" style={{ border: canDraw ? '2.5px solid var(--color-cyan)' : '1.5px solid var(--border-glass)' }}>
+                  <div className="card-back-pattern">♠</div>
+                </div>
               </div>
-            )}
+            </div>
           </div>
-        )}
 
-        {/* Discard Pile */}
-        <div className="pile-container">
-          <span className="pile-label">Discard Pile</span>
-          {gameState.topDiscard ? (
-            <div className="animate-deal" key={gameState.topDiscard.id}>
-              {renderCard(
-                gameState.topDiscard, 
-                handleDrawDiscard, 
-                canDraw, 
-                false
+          {/* Drawn Card */}
+          {gameState.activeDrawnCard && (
+            <div className="flex flex-col items-center gap-3">
+              <span className="text-[0.75rem] font-extrabold text-cyan-500 uppercase tracking-widest">
+                Drawn Card
+              </span>
+              <div className="animate-draw">
+                {renderCard(gameState.activeDrawnCard, null, false, false)}
+              </div>
+              
+              {isMyTurnActive && (
+                <div className="flex gap-2 mt-1">
+                  {gameState.drawnCardSource === 'deck' && (
+                    <>
+                      <button 
+                        onClick={() => handleDiscardDrawn(false)} 
+                        className="button-outline px-3 py-1.5 text-[0.8rem] rounded-lg"
+                      >
+                        Discard
+                      </button>
+                      {gameState.activeDrawnCard.action !== 'none' && (
+                        <button 
+                          onClick={() => handleDiscardDrawn(true)} 
+                          className="button-glow px-3 py-1.5 text-[0.8rem] rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 shadow-none"
+                        >
+                          Discard & Act
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {gameState.drawnCardSource === 'discard' && (
+                    <span className="text-[0.8rem] text-gray-400 font-semibold">Replace hand card</span>
+                  )}
+                </div>
               )}
             </div>
-          ) : (
-            <div className="card-container" style={{ border: '2px dashed rgba(255, 255, 255, 0.1)', borderRadius: '12px', height: '135px' }}></div>
           )}
+
+          {/* Discard Pile */}
+          <div className="flex flex-col items-center gap-2">
+            <span className="text-xs uppercase text-gray-400 tracking-wider font-semibold">Discard Pile</span>
+            {gameState.topDiscard ? (
+              <div className="animate-deal" key={gameState.topDiscard.id}>
+                {renderCard(
+                  gameState.topDiscard, 
+                  handleDrawDiscard, 
+                  canDraw, 
+                  false
+                )}
+              </div>
+            ) : (
+              <div className="card-container border-2 border-dashed border-white/10 rounded-xl h-[120px]"></div>
+            )}
+          </div>
+
         </div>
+
+        {/* Right Panel Spacer to center the play area */}
+        <div className="w-[260px] shrink-0 hidden md:block"></div>
 
       </div>
 
-      {/* 3. Bottom Player Dashboard */}
-      <div className="glass player-dashboard" style={{ borderTop: '1px solid var(--border-glass-glow)' }}>
-        
-        {selfPlayer && floatingEmojis.filter(e => e.playerId === selfPlayer.playerId).map(e => (
-          <span key={e.id} className="floating-emoji" style={{ left: `calc(50% + ${e.left}px)`, bottom: '130px' }}>
-            {e.emoji}
-          </span>
-        ))}
+      {/* 3. Bottom Row (Dashboard + Game Log) */}
+      <div className="w-full flex items-end justify-center gap-6 max-w-[1100px] mx-auto mt-3">
+        {/* Left Spacer to align with Reactions panel */}
+        <div className="w-[190px] shrink-0 hidden md:block"></div>
 
-        <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="status-dot online"></span>
-              <strong style={{ fontSize: '1.05rem' }}>{selfPlayer?.name} (You)</strong>
-              <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: '6px', color: 'var(--foreground-muted)' }}>
-                Score: {selfPlayer?.score}
-              </span>
-            </div>
-            
-            <div style={{ color: 'var(--color-cyan)', fontSize: '0.9rem', marginTop: '6px', fontWeight: 600 }}>
-              {gameState.status === 'initial_peeking' && (
-                <span>👁️ Initial Peek: Memorize your bottom two cards (Card 3 and 4) of the 2x2 grid, then click "Done Peeking" when ready.</span>
-              )}
-              {gameState.status === 'playing' && isMyTurnActive && !gameState.activeDrawnCard && (
-                <span>👉 Your Turn: Draw from the Deck or Discard pile. Or call CABO if ready.</span>
-              )}
-              {gameState.status === 'playing' && isMyTurnActive && gameState.activeDrawnCard && (
-                <span>🃏 Select hand card(s) to replace. Use matching values to discard multiple!</span>
-              )}
-              {gameState.status === 'playing' && !isMyTurnActive && (
-                <span style={{ color: 'var(--foreground-muted)' }}>⏳ Waiting for {getActivePlayerName()}'s turn...</span>
-              )}
-              
-              {gameState.actionState.type === 'peek' && gameState.actionState.sourcePlayerId === socketRef.current?.id && (
-                <span style={{ color: 'var(--color-emerald)' }}>🔍 Action Peek: Click one of your own hand cards to peek.</span>
-              )}
-              {gameState.actionState.type === 'spy' && gameState.actionState.sourcePlayerId === socketRef.current?.id && (
-                <span style={{ color: 'var(--color-cyan)' }}>🕵️ Action Spy: Click any card of an opponent to spy.</span>
-              )}
-              {(gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketRef.current?.id && (
-                <span style={{ color: 'var(--color-violet)' }}>
-                  {gameState.actionState.type === 'swap' ? '🔄 Action Swap: Swap cards without looking.' : '👁️ Action Look & Swap: Swap cards after looking at both.'}
-                  <br />
-                  Select one of your cards and one opponent card.
-                  {swapMyCardIndex !== null && ` (Selected My Card #${swapMyCardIndex + 1})`}
-                  {swapTarget !== null && ` (Selected Opponent Card)`}
-                </span>
-              )}
-              {gameState.overloadTransferState && (
-                <span style={{ color: 'var(--color-gold)' }}>
-                  {gameState.overloadTransferState.sourcePlayerId === socketRef.current?.id ? (
-                    `👉 Overload Successful! Choose one of your own cards to transfer to ${gameState.players.find(p => p.id === gameState.overloadTransferState.targetPlayerId)?.name || 'Opponent'}.`
-                  ) : (
-                    `⏳ ${gameState.players.find(p => p.id === gameState.overloadTransferState.sourcePlayerId)?.name || 'Someone'} is transferring a card...`
-                  )}
-                </span>
-              )}
-            </div>
-          </div>
+        {/* Center: Player Dashboard */}
+        <div
+          ref={el => { if (selfPlayer) playerBoxRefs.current[selfPlayer.id] = el; }}
+          className="glass flex-1 max-w-[620px] rounded-3xl p-4 px-6 flex flex-col items-center gap-4 border-t border-white/25 relative"
+        >
 
-          <div>
-            {gameState.status === 'initial_peeking' && !selfPlayer?.peeked && (
-              <button onClick={handleDonePeeking} className="button-glow" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-                Done Peeking
-              </button>
-            )}
-            
-             {(gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketRef.current?.id && (
-              <button 
-                onClick={handleConfirmSwap} 
-                className="button-glow" 
-                style={{ padding: '8px 16px', fontSize: '0.85rem', background: 'linear-gradient(135deg, var(--color-violet) 0%, var(--color-cyan) 100%)' }}
-                disabled={swapMyCardIndex === null || swapTarget === null}
-              >
-                Confirm Swap
-              </button>
-            )}
-
-            {gameState.overloadTransferState && gameState.overloadTransferState.sourcePlayerId === socketRef.current?.id && (
-              <button 
-                onClick={handleConfirmTransfer} 
-                className="button-glow" 
-                style={{ padding: '8px 16px', fontSize: '0.85rem', background: 'linear-gradient(135deg, var(--color-gold) 0%, var(--color-orange) 100%)' }}
-                disabled={transferCardIndex === null}
-              >
-                Confirm Transfer
-              </button>
-            )}
-
-            {isMyTurnActive && gameState.activeDrawnCard && selectedHandIndices.length > 0 && (
-              <button 
-                onClick={handleConfirmReplacement} 
-                className="button-glow" 
-                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-              >
-                {selectedHandIndices.length > 1 ? 'Match & Replace' : 'Replace Card'}
-              </button>
-            )}
-
-            {isMyTurnActive && !gameState.activeDrawnCard && gameState.caboPlayerId === null && (
-              <button 
-                onClick={handleCallCabo} 
-                className="button-glow" 
-                style={{ padding: '8px 16px', fontSize: '0.85rem', background: 'linear-gradient(135deg, var(--color-rose) 0%, var(--color-violet) 100%)', boxShadow: '0 4px 15px rgba(244,63,94,0.3)' }}
-              >
-                Call CABO!
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Hand Cards */}
-        <div className="player-cards-hand">
+        {/* Hand Cards first */}
+        <div className="grid gap-4 justify-items-center items-center min-h-[140px] mb-2" style={{ gridTemplateColumns: `repeat(${Math.ceil((selfPlayer?.cards.length || 4) / 2)}, minmax(0, 1fr))` }}>
           {selfPlayer?.cards.map((card, idx) => {
             const isSelectable = (isMyTurnActive && (
                                   gameState.activeDrawnCard || 
@@ -873,13 +880,12 @@ export default function RoomClient({ code }) {
                                   gameState.actionState.type === 'look_and_swap'
                                 )) || (
                                   gameState.overloadTransferState && 
-                                  gameState.overloadTransferState.sourcePlayerId === socketRef.current?.id
+                                  gameState.overloadTransferState.sourcePlayerId === socketId
                                 );
                                 
             const isClickable = gameState.status === 'playing';
             const isSelected = selectedHandIndices.includes(idx) || (swapMyCardIndex === idx) || (transferCardIndex === idx);
-
-            const isSelectedOverload = overloadSelect && overloadSelect.playerId === socketRef.current?.id && overloadSelect.cardIndex === idx;
+            const isSelectedOverload = overloadSelect && overloadSelect.playerId === socketId && overloadSelect.cardIndex === idx;
 
             return (
               <div key={card?.id || idx} className="animate-deal" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative' }}>
@@ -894,7 +900,7 @@ export default function RoomClient({ code }) {
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleOverloadAttempt(socketRef.current?.id, idx);
+                      handleOverloadAttempt(socketId, idx);
                     }}
                     className="button-glow"
                     style={{ 
@@ -919,56 +925,134 @@ export default function RoomClient({ code }) {
           })}
         </div>
 
-        <div style={{ width: '100%', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', marginTop: '8px', borderTop: '1px solid var(--border-glass)', paddingTop: '16px' }}>
-          
-          {/* Reaction Tray */}
+        {/* Stats, Instructions, and Action Buttons below cards */}
+        <div className="w-full flex justify-between items-center border-t border-white/5 pt-4">
           <div>
-            <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--foreground-muted)', fontWeight: 700, display: 'block', marginBottom: '8px' }}>
-              Quick Reactions
-            </span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {EMOJIS.map(e => (
-                <button 
-                  key={e} 
-                  onClick={() => handleSendEmoji(e)} 
-                  className="glass flex-center" 
-                  style={{ width: '36px', height: '36px', borderRadius: '50%', border: '1px solid var(--border-glass-glow)', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', fontSize: '1.25rem', transition: 'all 0.15s ease' }}
-                >
-                  {e}
-                </button>
-              ))}
+            <div className="flex items-center gap-2">
+              <span className="status-dot online"></span>
+              <strong className="text-[1.05rem]">{selfPlayer?.name} (You)</strong>
+              <span className="text-xs bg-white/8 px-2 py-0.5 rounded-md text-gray-400">
+                Score: {selfPlayer?.score}
+              </span>
+            </div>
+            
+            <div className="text-cyan-400 text-sm mt-1.5 font-semibold">
+              {gameState.status === 'initial_peeking' && (
+                <span>👁️ Initial Peek: Memorize your bottom two cards (Card 3 and 4) of the 2x2 grid, then click "Done Peeking" when ready.</span>
+              )}
+              {gameState.status === 'playing' && isMyTurnActive && !gameState.activeDrawnCard && (
+                <span>👉 Your Turn: Draw from the Deck or Discard pile. Or call CABO if ready.</span>
+              )}
+              {gameState.status === 'playing' && isMyTurnActive && gameState.activeDrawnCard && (
+                <span>🃏 Select hand card(s) to replace. Use matching values to discard multiple!</span>
+              )}
+              {gameState.status === 'playing' && !isMyTurnActive && (
+                <span className="text-gray-400">⏳ Waiting for {getActivePlayerName()}'s turn...</span>
+              )}
+              
+              {gameState.actionState.type === 'peek' && gameState.actionState.sourcePlayerId === socketId && (
+                <span className="text-emerald-500">🔍 Action Peek: Click one of your own hand cards to peek.</span>
+              )}
+              {gameState.actionState.type === 'spy' && gameState.actionState.sourcePlayerId === socketId && (
+                <span className="text-cyan-500">🕵️ Action Spy: Click any card of an opponent to spy.</span>
+              )}
+              {(gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketId && (
+                <span className="text-violet-500">
+                  {gameState.actionState.type === 'swap' ? '🔄 Action Swap: Swap cards without looking.' : '👁️ Action Look & Swap: Swap cards after looking at both.'}
+                  <br />
+                  Select one of your cards and one opponent card.
+                  {swapMyCardIndex !== null && ` (Selected My Card #${swapMyCardIndex + 1})`}
+                  {swapTarget !== null && ` (Selected Opponent Card)`}
+                </span>
+              )}
+              {gameState.overloadTransferState && (
+                <span className="text-amber-500">
+                  {gameState.overloadTransferState.sourcePlayerId === socketId ? (
+                    `👉 Overload Successful! Choose one of your own cards to transfer to ${gameState.players.find(p => p.id === gameState.overloadTransferState.targetPlayerId)?.name || 'Opponent'}.`
+                  ) : (
+                    `⏳ ${gameState.players.find(p => p.id === gameState.overloadTransferState.sourcePlayerId)?.name || 'Someone'} is transferring a card...`
+                  )}
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Activity Log */}
           <div>
-            <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--foreground-muted)', fontWeight: 700, display: 'block', marginBottom: '8px' }}>
-              Game Log
-            </span>
-            <div className="glass log-panel">
-              {gameState.logs.slice().reverse().map((log, idx) => {
-                let logClass = 'system';
-                if (log.includes('called CABO')) logClass = 'cabo';
-                else if (log.includes("turn")) logClass = 'active-turn';
-                
-                return (
-                  <div key={idx} className={`log-entry ${logClass}`}>
-                    {log}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+            {gameState.status === 'initial_peeking' && !selfPlayer?.peeked && (
+              <button onClick={handleDonePeeking} className="button-glow px-4 py-2 text-[0.85rem]">
+                Done Peeking
+              </button>
+            )}
+            
+             {(gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketId && (
+              <button 
+                onClick={handleConfirmSwap} 
+                className="button-glow px-4 py-2 text-[0.85rem] bg-gradient-to-br from-violet-500 to-cyan-500"
+                disabled={swapMyCardIndex === null || swapTarget === null}
+              >
+                Confirm Swap
+              </button>
+            )}
 
+            {gameState.overloadTransferState && gameState.overloadTransferState.sourcePlayerId === socketId && (
+              <button 
+                onClick={handleConfirmTransfer} 
+                className="button-glow px-4 py-2 text-[0.85rem] bg-gradient-to-br from-amber-500 to-orange-500"
+                disabled={transferCardIndex === null}
+              >
+                Confirm Transfer
+              </button>
+            )}
+
+            {isMyTurnActive && gameState.activeDrawnCard && selectedHandIndices.length > 0 && (
+              <button 
+                onClick={handleConfirmReplacement} 
+                className="button-glow px-4 py-2 text-[0.85rem]"
+              >
+                {selectedHandIndices.length > 1 ? 'Match & Replace' : 'Replace Card'}
+              </button>
+            )}
+
+            {isMyTurnActive && !gameState.activeDrawnCard && gameState.caboPlayerId === null && (
+              <button 
+                onClick={handleCallCabo} 
+                className="button-glow px-4 py-2 text-[0.85rem] bg-gradient-to-br from-rose-500 to-violet-500 shadow-[0_4px_15px_rgba(244,63,94,0.3)]"
+              >
+                Call CABO!
+              </button>
+            )}
+          </div>
         </div>
 
       </div>
 
+      {/* Right Panel: Game Log (Bottom Right) */}
+      <div className="glass p-3.5 rounded-2xl w-[260px] flex flex-col gap-2 shrink-0 border border-white/5 shadow-lg mb-0">
+        <span className="text-[0.75rem] uppercase text-gray-400 font-bold block mb-1 text-center tracking-wider border-b border-white/5 pb-1.5">
+          Game Log
+        </span>
+        <div className="glass log-panel w-full max-h-[140px] overflow-y-auto rounded-xl p-3 font-mono text-xs leading-relaxed text-gray-400">
+          {gameState.logs.slice().reverse().map((log, idx) => {
+            let logClass = 'system';
+            if (log.includes('called CABO')) logClass = 'cabo';
+            else if (log.includes("turn")) logClass = 'active-turn';
+            
+            return (
+              <div key={idx} className={`log-entry ${logClass}`}>
+                {log}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+    </div>
+
       {/* --- ACTION POWER REVEAL DIALOG MODAL --- */}
       {actionRevealCard && (
-        <div className="flex-center" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.8)', zIndex: 2000 }}>
-          <div className="glass glass-card" style={{ maxWidth: '320px', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '20px', color: 'var(--color-cyan)', textAlign: 'center' }}>
+        <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/85 z-[2000]">
+          <div className="glass glass-card max-w-[320px] w-full flex flex-col items-center p-8 rounded-2xl">
+            <h3 className="text-xl font-extrabold mb-5 text-cyan-500 text-center">
               {actionRevealTitle}
             </h3>
             
@@ -979,8 +1063,7 @@ export default function RoomClient({ code }) {
                 setActionRevealCard(null);
                 setActionRevealTitle('');
               }} 
-              className="button-glow" 
-              style={{ width: '100%', marginTop: '28px' }}
+              className="button-glow w-full mt-6"
             >
               OK, End Turn
             </button>
@@ -989,31 +1072,30 @@ export default function RoomClient({ code }) {
       )}
       {/* --- LOOK & SWAP REVEAL DIALOG MODAL --- */}
       {lookSwapReveal && (
-        <div className="flex-center" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.85)', zIndex: 2000 }}>
-          <div className="glass glass-card" style={{ maxWidth: '420px', width: '90%', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '20px', color: 'var(--color-cyan)', textAlign: 'center' }}>
+        <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/85 z-[2000]">
+          <div className="glass glass-card max-w-[420px] w-[90%] flex flex-col items-center p-8 rounded-2xl">
+            <h3 className="text-xl font-extrabold mb-5 text-cyan-500 text-center">
               Look & Swap Complete
             </h3>
             
-            <p style={{ fontSize: '0.9rem', color: 'var(--foreground-muted)', textAlign: 'center', marginBottom: '20px' }}>
+            <p className="text-[0.9rem] text-gray-400 text-center mb-5">
               Here are the cards before they were swapped:
             </p>
 
-            <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', marginBottom: '24px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>Your Card</span>
+            <div className="flex gap-5 justify-center mb-6">
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-[0.75rem] font-bold">Your Card</span>
                 {renderCard({ ...lookSwapReveal.myCard, hidden: false }, null, false, false)}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>{lookSwapReveal.targetName}'s Card</span>
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-[0.75rem] font-bold">{lookSwapReveal.targetName}'s Card</span>
                 {renderCard({ ...lookSwapReveal.targetCard, hidden: false }, null, false, false)}
               </div>
             </div>
             
             <button 
               onClick={() => setLookSwapReveal(null)} 
-              className="button-glow" 
-              style={{ width: '100%' }}
+              className="button-glow w-full"
             >
               OK, End Turn
             </button>
@@ -1024,33 +1106,33 @@ export default function RoomClient({ code }) {
 
       {/* --- ROUND END SCORE MODAL --- */}
       {gameState.status === 'round_end' && (
-        <div className="flex-center" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.85)', zIndex: 1500 }}>
-          <div className="glass glass-card" style={{ maxWidth: '520px', width: '90%', borderRadius: '24px', padding: '32px' }}>
-            <h2 style={{ fontSize: '1.75rem', fontWeight: 800, textShadow: '0 4px 10px rgba(0,0,0,0.4)', textAlign: 'center', marginBottom: '24px', background: 'linear-gradient(135deg, var(--color-cyan) 0%, var(--color-violet) 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/85 z-[1500]">
+          <div className="glass glass-card max-w-[520px] w-[90%] rounded-3xl p-8">
+            <h2 className="text-2xl font-extrabold text-center mb-6 bg-gradient-to-br from-cyan-500 to-violet-500 bg-clip-text text-transparent" style={{ textShadow: '0 4px 10px rgba(0,0,0,0.4)' }}>
               Round {gameState.roundNumber} Scoring
             </h2>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '28px' }}>
+            <table className="w-full border-collapse mb-7">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-glass-glow)', color: 'var(--foreground-muted)' }}>
-                  <th style={{ textAlign: 'left', padding: '10px', fontSize: '0.8rem', textTransform: 'uppercase', fontWeight: 700 }}>Player</th>
-                  <th style={{ textAlign: 'center', padding: '10px', fontSize: '0.8rem', textTransform: 'uppercase', fontWeight: 700 }}>Round Score</th>
-                  <th style={{ textAlign: 'right', padding: '10px', fontSize: '0.8rem', textTransform: 'uppercase', fontWeight: 700 }}>Total Score</th>
+                <tr className="border-b border-white/25 text-gray-400">
+                  <th className="text-left p-2.5 text-[0.8rem] uppercase font-bold">Player</th>
+                  <th className="text-center p-2.5 text-[0.8rem] uppercase font-bold">Round Score</th>
+                  <th className="text-right p-2.5 text-[0.8rem] uppercase font-bold">Total Score</th>
                 </tr>
               </thead>
               <tbody>
                 {gameState.players.map((p) => {
                   const isCabo = p.id === gameState.caboPlayerId;
                   return (
-                    <tr key={p.playerId} style={{ borderBottom: '1px solid var(--border-glass)' }}>
-                      <td style={{ padding: '12px 10px', fontWeight: 600 }}>
-                        {p.name} {p.id === socketRef.current?.id && '(You)'}
-                        {isCabo && <span style={{ marginLeft: '8px', fontSize: '0.65rem', background: 'var(--color-rose)', color: 'white', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>CABO</span>}
+                    <tr key={p.playerId} className="border-b border-white/10">
+                      <td className="py-3 px-2.5 font-semibold">
+                        {p.name} {p.id === socketId && '(You)'}
+                        {isCabo && <span className="ml-2 text-xs bg-rose-500 text-white px-2 py-0.5 rounded font-extrabold">CABO</span>}
                       </td>
-                      <td style={{ padding: '12px 10px', textAlign: 'center', fontWeight: 700, color: 'var(--color-cyan)' }}>
+                      <td className="py-3 px-2.5 text-center font-bold text-cyan-500">
                         {p.roundScore}
                       </td>
-                      <td style={{ padding: '12px 10px', textAlign: 'right', fontWeight: 800 }}>
+                      <td className="py-3 px-2.5 text-right font-extrabold">
                         {p.score}
                       </td>
                     </tr>
@@ -1060,11 +1142,11 @@ export default function RoomClient({ code }) {
             </table>
 
             {isHost ? (
-              <button onClick={handleNextRound} className="button-glow" style={{ width: '100%', padding: '14px' }}>
+              <button onClick={handleNextRound} className="button-glow w-full py-3.5">
                 Start Next Round
               </button>
             ) : (
-              <div className="banner" style={{ background: 'rgba(6, 182, 212, 0.1)', color: 'var(--color-cyan)', fontSize: '0.9rem' }}>
+              <div className="banner bg-cyan-500/10 text-cyan-400 text-sm p-4 rounded-xl text-center">
                 Waiting for the host to start the next round...
               </div>
             )}
@@ -1074,60 +1156,53 @@ export default function RoomClient({ code }) {
 
       {/* --- GAME OVER FINAL SCORE MODAL --- */}
       {gameState.status === 'game_over' && (
-        <div className="flex-center" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.9)', zIndex: 1800 }}>
-          <div className="glass glass-card" style={{ maxWidth: '480px', width: '90%', borderRadius: '24px', padding: '36px', textAlign: 'center' }}>
+        <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/90 z-[1800]">
+          <div className="glass glass-card max-w-[480px] w-[90%] rounded-3xl p-9 text-center">
             
-            <div style={{ fontSize: '3.5rem', marginBottom: '16px' }}>🏆</div>
+            <div className="text-5xl mb-4">🏆</div>
             
-            <h2 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '6px', background: 'linear-gradient(135deg, var(--color-gold) 0%, #f97316) 100%', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            <h2 className="text-3xl font-extrabold mb-1 bg-gradient-to-br from-amber-500 to-orange-500 bg-clip-text text-transparent">
               Game Finished!
             </h2>
             
-            <p style={{ color: 'var(--foreground-muted)', fontSize: '1rem', marginBottom: '24px' }}>
+            <p className="text-gray-400 text-base mb-6">
               Final Standings after {gameState.roundNumber} rounds:
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '32px' }}>
+            <div className="flex flex-col gap-2.5 mb-8">
               {gameState.players
                 .slice()
                 .sort((a, b) => a.score - b.score)
                 .map((p, rank) => (
                   <div 
                     key={p.playerId} 
-                    className="glass" 
-                    style={{ 
-                      padding: '12px 16px', 
-                      borderRadius: '12px', 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      borderLeft: rank === 0 ? '3px solid var(--color-gold)' : '1px solid var(--border-glass)'
-                    }}
+                    className="glass p-3 px-4 rounded-xl flex justify-between items-center"
+                    style={{ borderLeft: rank === 0 ? '3px solid var(--color-gold)' : '1px solid var(--border-glass)' }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[1.1rem] font-bold">
                         {rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : `#${rank + 1}`}
                       </span>
-                      <span style={{ fontWeight: 600 }}>{p.name}</span>
+                      <span className="font-semibold">{p.name}</span>
                     </div>
-                    <span style={{ fontWeight: 800, color: rank === 0 ? 'var(--color-gold)' : 'white' }}>
+                    <span className={`font-extrabold ${rank === 0 ? 'text-amber-500' : 'text-white'}`}>
                       {p.score} pts
                     </span>
                   </div>
                 ))}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="flex flex-col gap-3">
               {isHost ? (
-                <button onClick={handleNextRound} className="button-glow" style={{ width: '100%', padding: '14px' }}>
+                <button onClick={handleNextRound} className="button-glow w-full py-3.5">
                   Play Again
                 </button>
               ) : (
-                <div className="banner" style={{ background: 'rgba(245, 158, 11, 0.1)', color: 'var(--color-gold)', fontSize: '0.9rem', marginBottom: '12px' }}>
+                <div className="banner bg-amber-500/10 text-amber-500 text-sm p-3 rounded-xl text-center mb-3">
                   Waiting for host to restart game...
                 </div>
               )}
-              <button onClick={handleBackToLobby} className="button-outline" style={{ width: '100%' }}>
+              <button onClick={handleBackToLobby} className="button-outline w-full">
                 Exit to Lobby
               </button>
             </div>

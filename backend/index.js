@@ -10,7 +10,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const port = process.env.PORT || 3001;
-const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
+const corsOrigin = process.env.CORS_ORIGIN || '*';
 
 const expressApp = express();
 
@@ -116,6 +116,12 @@ io.on('connection', (socket) => {
     if (existingPlayerIdx !== -1) {
       // Reconnect player
       const player = room.players[existingPlayerIdx];
+
+      // Remove stale old socket entry to prevent socketToPlayerMap leak on reconnects
+      if (player.id && player.id !== socket.id) {
+        socketToPlayerMap.delete(player.id);
+      }
+
       player.id = socket.id;
       player.active = true;
 
@@ -261,14 +267,18 @@ io.on('connection', (socket) => {
         playerId: result.revealPlayerId,
         cardIndex: result.revealIndex
       };
-      
-      // Set 4-second timeout to turn it back face-down
-      setTimeout(() => {
+
+      // Cancel any existing timer before setting a new one
+      if (room.exposedCardTimer) clearTimeout(room.exposedCardTimer);
+
+      // Store timer ID on room so it can be cancelled if room is cleaned up
+      room.exposedCardTimer = setTimeout(() => {
         const currentRoom = rooms.get(code);
-        if (currentRoom && currentRoom.exposedCard && 
-            currentRoom.exposedCard.playerId === result.revealPlayerId && 
+        if (currentRoom && currentRoom.exposedCard &&
+            currentRoom.exposedCard.playerId === result.revealPlayerId &&
             currentRoom.exposedCard.cardIndex === result.revealIndex) {
           currentRoom.exposedCard = null;
+          currentRoom.exposedCardTimer = null;
           sendGameStateToAll(code, currentRoom);
         }
       }, 4000);
@@ -384,13 +394,33 @@ io.on('connection', (socket) => {
   // Floating reaction emoji broadcast
   socket.on('send_emoji', ({ roomCode, emoji }) => {
     const code = roomCode.toUpperCase();
-    const mapping = socketToPlayerMap.get(socket.id);
-    if (!mapping) return;
-
     io.to(code).emit('emoji_received', {
-      playerId: mapping.playerId,
+      playerId: socket.id,
       emoji
     });
+  });
+
+  // Chat message broadcast
+  socket.on('send_chat', ({ roomCode, message }) => {
+    const code = roomCode?.toUpperCase();
+    if (!code) return;
+
+    const room = rooms.get(code);
+    const senderName = room ? (room.players.find(p => p.id === socket.id)?.name || 'Player') : 'Player';
+
+    // Broadcast chat bubble
+    io.to(code).emit('chat_received', {
+      playerId: socket.id,
+      senderName,
+      message
+    });
+
+    // Add to game logs (capped at 100 to prevent unbounded growth)
+    if (room) {
+      room.logs.push(`💬 ${senderName}: ${message}`);
+      if (room.logs.length > 100) room.logs = room.logs.slice(-100);
+      sendGameStateToAll(code, room);
+    }
   });
 
   // Disconnect handler
@@ -415,8 +445,13 @@ io.on('connection', (socket) => {
 });
 
 // Helper to check and write game over to DB
+// Tracks which rooms have already been scheduled for cleanup to avoid duplicate timers
+const scheduledForCleanup = new Set();
+
 function checkAndHandleGameOver(room) {
-  if (room.status === 'game_over') {
+  if (room.status === 'game_over' && !scheduledForCleanup.has(room.roomCode)) {
+    scheduledForCleanup.add(room.roomCode);
+
     db.saveGameHistory({
       roomCode: room.roomCode,
       roundNumber: room.roundNumber,
@@ -429,6 +464,15 @@ function checkAndHandleGameOver(room) {
     }).then(() => {
       console.log(`Saved game result to database for room ${room.roomCode}`);
     });
+
+    // Delete room from memory after 60s so players can see final scores
+    setTimeout(() => {
+      const r = rooms.get(room.roomCode);
+      if (r && r.exposedCardTimer) clearTimeout(r.exposedCardTimer);
+      rooms.delete(room.roomCode);
+      scheduledForCleanup.delete(room.roomCode);
+      console.log(`Room ${room.roomCode} cleaned up from memory.`);
+    }, 60000);
   }
 }
 

@@ -1,5 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
@@ -42,9 +46,10 @@
 
 html, body {
   width: 100%;
-  min-height: 100%;
+  height: 100%;
   background: var(--bg-space);
   color: var(--foreground);
+  overflow-y: auto;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -106,8 +111,8 @@ dialog::backdrop {
 
 /* Game Card Component (3D Interactive Cards) */
 .card-container {
-  width: 90px;
-  height: 135px;
+  width: 80px;
+  height: 120px;
   perspective: 1000px;
   cursor: pointer;
   position: relative;
@@ -270,8 +275,10 @@ dialog::backdrop {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 16px;
+  padding: 12px;
   position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Opponent layout rings */
@@ -333,13 +340,22 @@ dialog::backdrop {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* Center Play Area */
+/* Center Play Area (Roundtable Felt) */
 .center-board {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 32px;
-  margin: auto;
+  gap: 16px;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(21, 34, 56, 0.75) 0%, rgba(9, 15, 26, 0.95) 100%);
+  border: 2.5px solid var(--border-glass-glow);
+  box-shadow: 0 0 30px rgba(6, 182, 212, 0.25), inset 0 0 25px rgba(0, 0, 0, 0.8);
+  margin: 12px auto;
+  padding: 16px;
+  backdrop-filter: blur(12px);
+  position: relative;
 }
 
 .pile-container {
@@ -412,6 +428,57 @@ dialog::backdrop {
   text-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
 }
 
+.floating-chat-bubble {
+  position: absolute;
+  pointer-events: none;
+  z-index: 1000;
+  padding: 5px 11px;
+  border-radius: 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #111;
+  background: #ffffff;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0,0,0,0.2);
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Small tail pointing left — toward the avatar */
+  animation: floatChatUp 3.5s forwards ease-out;
+}
+
+.floating-chat-bubble::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-right-color: #ffffff;
+  border-left: 0;
+  filter: drop-shadow(-2px 0 1px rgba(0,0,0,0.15));
+}
+
+@keyframes floatChatUp {
+  0% {
+    transform: translateX(0) scale(0.7);
+    opacity: 0;
+  }
+  15% {
+    transform: translateX(4px) scale(1.05);
+    opacity: 1;
+  }
+  75% {
+    transform: translateX(2px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(2px) scale(0.97);
+    opacity: 0;
+  }
+}
+
 /* Custom Alert Banner */
 .banner {
   padding: 10px 20px;
@@ -476,7 +543,7 @@ dialog::backdrop {
 
 /* Activity Log Panel */
 .log-panel {
-  max-height: 180px;
+  max-height: 85px;
   overflow-y: auto;
   border-radius: 12px;
   padding: 12px;

@@ -75,53 +75,31 @@ export default function Home() {
   };
 
   return (
-    <main className="flex-center" style={{ minHeight: '100vh', padding: '24px' }}>
-      <div className="glass glass-card" style={{ maxWidth: '480px', width: '100%', borderRadius: '24px' }}>
+    <main className="flex items-center justify-center min-h-screen p-6">
+      <div className="glass glass-card max-w-[480px] w-full rounded-3xl p-6 md:p-8">
         
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <h1 style={{ 
-            fontSize: '3rem', 
-            fontWeight: 800, 
-            background: 'linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            textShadow: '0 4px 20px rgba(6, 182, 212, 0.15)',
-            marginBottom: '8px'
-          }}>
+        <div className="text-center mb-8">
+          <h1 className="text-5xl font-extrabold bg-gradient-to-br from-cyan-500 to-violet-500 bg-clip-text text-transparent mb-2" style={{ textShadow: '0 4px 20px rgba(6, 182, 212, 0.15)' }}>
             CABO
           </h1>
-          <p style={{ color: 'var(--foreground-muted)', fontWeight: 500 }}>
+          <p className="text-gray-400 font-medium">
             Play online with up to 6 friends
           </p>
         </div>
 
         {error && (
-          <div className="banner" style={{ 
-            background: 'rgba(244, 63, 94, 0.15)', 
-            border: '1px solid var(--color-rose)',
-            color: '#fda4af',
-            marginBottom: '20px',
-            fontSize: '0.9rem'
-          }}>
+          <div className="banner bg-rose-500/15 border border-rose-500 text-rose-200 mb-5 text-sm p-3 rounded-lg text-center">
             {error}
           </div>
         )}
 
-        <div style={{ marginBottom: '24px' }}>
-          <label style={{ 
-            display: 'block', 
-            fontSize: '0.85rem', 
-            textTransform: 'uppercase', 
-            color: 'var(--foreground-muted)',
-            letterSpacing: '0.1em',
-            marginBottom: '8px',
-            fontWeight: 600
-          }}>
+        <div className="mb-6">
+          <label className="block text-xs uppercase text-gray-400 tracking-wider mb-2 font-semibold">
             Your Display Name
           </label>
           <input 
             type="text" 
-            className="glass-input" 
+            className="glass-input w-full" 
             placeholder="e.g. SecretSpy007" 
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
@@ -129,44 +107,35 @@ export default function Home() {
           />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="flex flex-col gap-4">
           
-          <button onClick={handleCreateRoom} className="button-glow" style={{ width: '100%', padding: '14px' }}>
+          <button onClick={handleCreateRoom} className="button-glow w-full py-3.5">
             Create New Room
           </button>
 
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            color: 'var(--foreground-muted)', 
-            fontSize: '0.85rem',
-            margin: '8px 0'
-          }}>
-            <hr style={{ flex: 1, borderColor: 'var(--border-glass)' }} />
-            <span style={{ padding: '0 12px', fontWeight: 600 }}>OR</span>
-            <hr style={{ flex: 1, borderColor: 'var(--border-glass)' }} />
+          <div className="flex items-center justify-center text-gray-400 text-sm my-2">
+            <hr className="flex-1 border-white/10" />
+            <span className="px-3 font-semibold">OR</span>
+            <hr className="flex-1 border-white/10" />
           </div>
 
-          <form onSubmit={handleJoinRoom} style={{ display: 'flex', gap: '12px' }}>
+          <form onSubmit={handleJoinRoom} className="flex gap-3">
             <input 
               type="text" 
-              className="glass-input" 
+              className="glass-input flex-1 uppercase text-center font-bold tracking-widest" 
               placeholder="ROOM CODE" 
-              style={{ flex: 1, textTransform: 'uppercase', textAlign: 'center', fontWeight: 700, letterSpacing: '0.15em' }}
               value={roomCode}
               onChange={(e) => setRoomCode(e.target.value)}
               maxLength={4}
             />
-            <button type="submit" className="button-outline" style={{ padding: '14px 24px' }}>
+            <button type="submit" className="button-outline py-3.5 px-6">
               Join
             </button>
           </form>
 
           <button 
             onClick={() => rulesDialogRef.current?.showModal()} 
-            className="button-outline" 
-            style={{ border: 'none', background: 'transparent', color: 'var(--color-cyan)', marginTop: '16px', fontWeight: 700 }}
+            className="button-outline border-none bg-transparent text-cyan-500 mt-4 font-bold"
           >
             📖 How to Play & Rules
           </button>
@@ -178,75 +147,67 @@ export default function Home() {
       <dialog 
         ref={rulesDialogRef} 
         onClick={handleBackdropClick}
-        className="glass-heavy"
-        style={{ padding: '28px', maxWidth: '560px' }}
+        className="glass-heavy p-7 max-w-[560px] rounded-2xl"
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ 
-            fontSize: '1.75rem', 
-            fontWeight: 800, 
-            background: 'linear-gradient(135deg, var(--color-cyan) 0%, var(--color-violet) 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent'
-          }}>
+        <div className="flex justify-between items-center mb-5">
+          <h2 className="text-2xl font-extrabold bg-gradient-to-br from-cyan-500 to-violet-500 bg-clip-text text-transparent">
             How to Play CABO
           </h2>
           <button 
             onClick={() => rulesDialogRef.current?.close()} 
-            style={{ background: 'transparent', border: 'none', color: 'var(--foreground-muted)', fontSize: '1.5rem', cursor: 'pointer' }}
+            className="bg-transparent border-none text-gray-400 text-2xl cursor-pointer"
           >
             &times;
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', maxHeight: '60vh', fontSize: '0.95rem', lineHeight: '1.6', paddingRight: '8px' }}>
+        <div className="flex flex-col gap-4 overflow-y-auto max-h-[60vh] text-[0.95rem] leading-relaxed pr-2">
           
           <div><strong>Objective:</strong> End the game with the lowest total card points. You start with 4 face-down cards and must swap/match to minimize their values.</div>
           
-          <hr style={{ borderColor: 'var(--border-glass)' }} />
+          <hr className="border-white/10" />
           
           <div><strong>1. Setup & Peeking:</strong> At the start of the round, you get 4 cards in a 2x2 matrix. You can peek at your **bottom two cards** (Card 3 and 4) to memorize their values.</div>
-
+ 
           <div><strong>2. On Your Turn:</strong> Draw a card. You can:
-            <ul style={{ paddingLeft: '20px', marginTop: '4px' }}>
+            <ul className="list-disc pl-5 mt-1">
               <li>Draw from **Deck**: peek at the card, then either **replace** one of your cards with it, or **discard** it.</li>
               <li>Draw from **Discard Pile**: you *must* use it to replace one of your cards.</li>
             </ul>
           </div>
-
+ 
           <div><strong>3. Special Card Actions (activated when discarded from Deck):</strong>
-            <ul style={{ paddingLeft: '20px', marginTop: '4px' }}>
-              <li><strong style={{ color: 'var(--color-emerald)' }}>7 or 8 (Know your Fate):</strong> Peek at one of your own cards.</li>
-              <li><strong style={{ color: 'var(--color-cyan)' }}>9 or 10:</strong> Peek at one card of any of the opponents.</li>
-              <li><strong style={{ color: 'var(--color-violet)' }}>Queen:</strong> Swap one of your cards with an opponent's card without looking.</li>
-              <li><strong style={{ color: 'var(--color-gold)' }}>King:</strong> Swap one of your cards with an opponent's card after looking at both.</li>
+            <ul className="list-disc pl-5 mt-1">
+              <li><strong className="text-emerald-500">7 or 8 (Know your Fate):</strong> Peek at one of your own cards.</li>
+              <li><strong className="text-cyan-500">9 or 10:</strong> Peek at one card of any of the opponents.</li>
+              <li><strong className="text-violet-500">Queen:</strong> Swap one of your cards with an opponent's card without looking.</li>
+              <li><strong className="text-gold-500">King:</strong> Swap one of your cards with an opponent's card after looking at both.</li>
             </ul>
           </div>
-
+ 
           <div><strong>4. Card Points:</strong>
-            <ul style={{ paddingLeft: '20px', marginTop: '4px' }}>
+            <ul className="list-disc pl-5 mt-1">
               <li>Aces = 1 point | 2 to 10 = face value | Queen & King = 10 points</li>
-              <li><strong style={{ color: 'var(--color-rose)' }}>Jack = -1 point! (Negative scoring card)</strong></li>
+              <li><strong className="text-rose-500">Jack = -1 point! (Negative scoring card)</strong></li>
             </ul>
           </div>
-
+ 
           <div><strong>5. Card Matching (Reduce Hand Size):</strong> When replacing a card, you can select **multiple matching cards** from your hand (e.g. two 5s). If they match, they are all discarded, and the new card takes the slot of the first one (reducing your hand size). If you mismatch, you keep your cards and get a penalty card face down from the deck!</div>
-
+ 
           <div><strong>6. Calling CABO:</strong> When it is your turn, if you believe you have the lowest sum of card points, you can call **CABO**. You do not draw. Every other player gets one final turn. Then, all cards are revealed.
-            <ul style={{ paddingLeft: '20px', marginTop: '4px' }}>
+            <ul className="list-disc pl-5 mt-1">
               <li>If the CABO caller has the lowest score: they get **0 points** for the round.</li>
               <li>If another player has a score equal to or lower: the CABO caller gets their sum **+ 10 penalty points**; other players get their normal sums.</li>
             </ul>
           </div>
-
+ 
           <div><strong>7. Game End:</strong> When a player reaches 100 cumulative points, the game ends. Lowest score wins. If you reach exactly 100 points, your score **resets to 50**!</div>
-
+ 
         </div>
 
         <button 
           onClick={() => rulesDialogRef.current?.close()} 
-          className="button-glow" 
-          style={{ width: '100%', marginTop: '24px' }}
+          className="button-glow w-full mt-6"
         >
           Got it, let's play!
         </button>
