@@ -62,6 +62,10 @@ room.turnIndex = 0;
 game.callCabo(room, 'p1');
 assert(room.caboPlayerId === 'p1', 'Alice called CABO');
 
+// Alice completes her turn
+game.drawCardFromDeck(room, 'p1');
+game.discardDrawnCard(room, 'p1', false);
+
 // Bob turn
 game.drawCardFromDeck(room, 'p2');
 game.discardDrawnCard(room, 'p2', false);
@@ -75,10 +79,11 @@ room.players[2].cards = [{ value: '5', suit: 'hearts', points: 5 }, null, null, 
 game.drawCardFromDeck(room, 'p3');
 game.discardDrawnCard(room, 'p3', false);
 
-assert(room.status === 'round_end', 'Round ended');
-assert(room.players[0].roundScore === 0, 'Alice got 0 (cabo caller lowest)');
-assert(room.players[1].roundScore === 4, 'Bob got 4');
-assert(room.players[2].roundScore === 5, 'Charlie got 5');
+assert(room.status === 'game_over', 'Game ended');
+assert(room.players[0].score === 0, 'Alice got 0 (cabo caller lowest)');
+assert(room.players[1].score === 4, 'Bob got 4');
+assert(room.players[2].score === 5, 'Charlie got 5');
+assert(room.players[0].wins === 1, 'Alice got 1 win');
 
 console.log('✓ CABO final turn cycle and score sums validated');
 

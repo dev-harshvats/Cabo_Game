@@ -80,6 +80,7 @@ io.on('connection', (socket) => {
         active: true,
         score: 0,
         roundScore: 0,
+        wins: 0,
         peeked: false,
         cards: []
       }],
@@ -168,6 +169,7 @@ io.on('connection', (socket) => {
       active: true,
       score: 0,
       roundScore: 0,
+      wins: 0,
       peeked: false,
       cards: []
     };
@@ -384,6 +386,13 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.id === socket.id);
     if (!player || !player.isHost) return;
 
+    // Cancel cleanup timer if active
+    if (room.cleanupTimer) {
+      clearTimeout(room.cleanupTimer);
+      room.cleanupTimer = null;
+    }
+    scheduledForCleanup.delete(code);
+
     const nextRoundState = gameEngine.initNextRound(room);
     rooms.set(code, nextRoundState);
     
@@ -452,6 +461,9 @@ function checkAndHandleGameOver(room) {
   if (room.status === 'game_over' && !scheduledForCleanup.has(room.roomCode)) {
     scheduledForCleanup.add(room.roomCode);
 
+    const minScore = Math.min(...room.players.map(p => p.score));
+    const winnerNames = room.players.filter(p => p.score === minScore).map(p => p.name).join(' & ');
+
     db.saveGameHistory({
       roomCode: room.roomCode,
       roundNumber: room.roundNumber,
@@ -460,16 +472,18 @@ function checkAndHandleGameOver(room) {
         playerId: p.playerId,
         score: p.score
       })),
-      winnerName: room.players.reduce((minP, p) => p.score < minP.score ? p : minP, room.players[0]).name
+      winnerName: winnerNames
     }).then(() => {
       console.log(`Saved game result to database for room ${room.roomCode}`);
     });
 
     // Delete room from memory after 60s so players can see final scores
-    setTimeout(() => {
+    room.cleanupTimer = setTimeout(() => {
       const r = rooms.get(room.roomCode);
-      if (r && r.exposedCardTimer) clearTimeout(r.exposedCardTimer);
-      rooms.delete(room.roomCode);
+      if (r) {
+        if (r.exposedCardTimer) clearTimeout(r.exposedCardTimer);
+        rooms.delete(room.roomCode);
+      }
       scheduledForCleanup.delete(room.roomCode);
       console.log(`Room ${room.roomCode} cleaned up from memory.`);
     }, 60000);
@@ -504,6 +518,7 @@ function sanitizeGameState(room, socketId = null) {
       active: p.active,
       score: p.score,
       roundScore: p.roundScore,
+      wins: p.wins || 0,
       peeked: p.peeked,
       cards: p.cards.map((c, idx) => {
         if (!c) return null; // Discarded slot

@@ -140,6 +140,7 @@ function initNextRound(room) {
     }
     p.peeked = false;
     p.roundScore = 0;
+    p.score = 0;
   });
 
   room.discardPile = [deck.pop()];
@@ -404,9 +405,7 @@ function callCabo(room, playerId) {
 
   room.caboPlayerId = playerId;
   room.turnsLeft = room.players.length - 1;
-  room.logs.push(`${player.name} called CABO! Final round of turns started.`);
-
-  advanceTurn(room);
+  room.logs.push(`${player.name} called CABO! They get to complete their turn.`);
 }
 
 // Advance to the next player's turn
@@ -457,28 +456,19 @@ function endRound(room) {
       room.logs.push(`${p.name} cards sum: ${p.roundScore}`);
     }
 
-    p.score += p.roundScore;
-
-    if (p.score === 100) {
-      p.score = 50;
-      room.logs.push(`Wow! ${p.name}'s total score reached exactly 100! Resetting back to 50.`);
-    }
+    p.score = p.roundScore;
   });
 
-  const crossed100 = room.players.some(p => p.score >= 100);
+  // Calculate winner(s) of this game (lowest score)
+  const minScore = Math.min(...room.players.map(p => p.score));
+  const winners = room.players.filter(p => p.score === minScore);
 
-  if (crossed100) {
-    room.status = 'game_over';
-    let winner = room.players[0];
-    room.players.forEach(p => {
-      if (p.score < winner.score) {
-        winner = p;
-      }
-    });
-    room.logs.push(`GAME OVER! Winner is ${winner.name} with ${winner.score} points!`);
-  } else {
-    room.status = 'round_end';
-  }
+  winners.forEach(w => {
+    w.wins = (w.wins || 0) + 1;
+    room.logs.push(`🏆 ${w.name} wins this game!`);
+  });
+
+  room.status = 'game_over';
 }
 
 function overloadCard(room, playerId, targetPlayerId, cardIndex) {

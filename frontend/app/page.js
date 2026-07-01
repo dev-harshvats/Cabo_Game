@@ -167,12 +167,12 @@ export default function Home() {
           
           <hr className="border-white/10" />
           
-          <div><strong>1. Setup & Peeking:</strong> At the start of the round, you get 4 cards in a 2x2 matrix. You can peek at your **bottom two cards** (Card 3 and 4) to memorize their values.</div>
+          <div><strong>1. Setup & Peeking:</strong> At the start of the round, you get 4 cards in a 2x2 matrix. You can peek at your <b>Bottom 2 Cards</b> (Card 3 and 4) to memorize their values.</div>
  
           <div><strong>2. On Your Turn:</strong> Draw a card. You can:
             <ul className="list-disc pl-5 mt-1">
-              <li>Draw from **Deck**: peek at the card, then either **replace** one of your cards with it, or **discard** it.</li>
-              <li>Draw from **Discard Pile**: you *must* use it to replace one of your cards.</li>
+              <li>Draw from <b>Deck</b>: peek at the card, then either <b>Replace</b> one of your cards with it, or <b>Discard</b> it.</li>
+              <li>Draw from <b>Discard Pile</b>: you <b>Must</b> use it to replace one of your cards.</li>
             </ul>
           </div>
  
@@ -192,16 +192,15 @@ export default function Home() {
             </ul>
           </div>
  
-          <div><strong>5. Card Matching (Reduce Hand Size):</strong> When replacing a card, you can select **multiple matching cards** from your hand (e.g. two 5s). If they match, they are all discarded, and the new card takes the slot of the first one (reducing your hand size). If you mismatch, you keep your cards and get a penalty card face down from the deck!</div>
+          <div><strong>5. Card Matching (Reduce Hand Size):</strong> When replacing a card, you can select <b>Multiple Matching Cards</b> from your hand (e.g. two 5s). If they match, they are all discarded, and the new card takes the slot of the first one (reducing your hand size). If you mismatch, you keep your cards and get a penalty card face down from the deck!</div>
  
-          <div><strong>6. Calling CABO:</strong> When it is your turn, if you believe you have the lowest sum of card points, you can call **CABO**. You do not draw. Every other player gets one final turn. Then, all cards are revealed.
+          <div><strong>6. Calling CABO:</strong> When it is your turn, if you believe you have the lowest sum of card points, you can call <b>CABO</b>. You then complete your turn as usual. Every other player gets one final turn. When it reaches your turn again, the round ends and all cards are revealed.
             <ul className="list-disc pl-5 mt-1">
-              <li>If the CABO caller has the lowest score: they get **0 points** for the round.</li>
-              <li>If another player has a score equal to or lower: the CABO caller gets their sum **+ 10 penalty points**; other players get their normal sums.</li>
+              <li>If the <b>CABO</b> caller has the lowest score: they <b>WIN</b> the round.</li>
             </ul>
           </div>
  
-          <div><strong>7. Game End:</strong> When a player reaches 100 cumulative points, the game ends. Lowest score wins. If you reach exactly 100 points, your score **resets to 50**!</div>
+          <div><strong>7. Series Play:</strong> Each round played is a standalone game. The system tracks how many games each player has won over multiple rounds to decide the overall series champion!</div>
  
         </div>
 

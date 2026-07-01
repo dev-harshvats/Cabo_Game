@@ -941,7 +941,11 @@ export default function RoomClient({ code }) {
                 <span>👁️ Initial Peek: Memorize your bottom two cards (Card 3 and 4) of the 2x2 grid, then click "Done Peeking" when ready.</span>
               )}
               {gameState.status === 'playing' && isMyTurnActive && !gameState.activeDrawnCard && (
-                <span>👉 Your Turn: Draw from the Deck or Discard pile. Or call CABO if ready.</span>
+                gameState.caboPlayerId === socketId ? (
+                  <span>👉 You called CABO! Complete your turn by drawing a card.</span>
+                ) : (
+                  <span>👉 Your Turn: Draw from the Deck or Discard pile. Or call CABO if ready.</span>
+                )
               )}
               {gameState.status === 'playing' && isMyTurnActive && gameState.activeDrawnCard && (
                 <span>🃏 Select hand card(s) to replace. Use matching values to discard multiple!</span>
@@ -1155,61 +1159,115 @@ export default function RoomClient({ code }) {
       )}
 
       {/* --- GAME OVER FINAL SCORE MODAL --- */}
-      {gameState.status === 'game_over' && (
-        <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/90 z-[1800]">
-          <div className="glass glass-card max-w-[480px] w-[90%] rounded-3xl p-9 text-center">
-            
-            <div className="text-5xl mb-4">🏆</div>
-            
-            <h2 className="text-3xl font-extrabold mb-1 bg-gradient-to-br from-amber-500 to-orange-500 bg-clip-text text-transparent">
-              Game Finished!
-            </h2>
-            
-            <p className="text-gray-400 text-base mb-6">
-              Final Standings after {gameState.roundNumber} rounds:
-            </p>
-
-            <div className="flex flex-col gap-2.5 mb-8">
-              {gameState.players
-                .slice()
-                .sort((a, b) => a.score - b.score)
-                .map((p, rank) => (
-                  <div 
-                    key={p.playerId} 
-                    className="glass p-3 px-4 rounded-xl flex justify-between items-center"
-                    style={{ borderLeft: rank === 0 ? '3px solid var(--color-gold)' : '1px solid var(--border-glass)' }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-[1.1rem] font-bold">
-                        {rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : `#${rank + 1}`}
-                      </span>
-                      <span className="font-semibold">{p.name}</span>
+      {gameState.status === 'game_over' && (() => {
+        const minScore = Math.min(...gameState.players.map(p => p.score));
+        const winners = gameState.players.filter(p => p.score === minScore);
+        
+        return (
+          <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/90 z-[1800]">
+            <div className="glass glass-card max-w-[500px] w-[95%] rounded-3xl p-6 md:p-8 text-center max-h-[90vh] overflow-y-auto">
+              
+              <div className="text-4xl mb-2">🏆</div>
+              
+              <h2 className="text-2xl font-extrabold mb-1 bg-gradient-to-br from-amber-500 to-orange-500 bg-clip-text text-transparent">
+                Game Finished!
+              </h2>
+              
+              <div className="my-3">
+                <span className="text-[0.7rem] uppercase text-amber-500/80 font-bold tracking-widest block mb-1.5">Game Winner(s)</span>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {winners.map(w => (
+                    <div 
+                      key={w.playerId} 
+                      className="glass px-3.5 py-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-400 text-sm font-extrabold flex items-center gap-1 shadow-[0_0_10px_rgba(245,158,11,0.15)] animate-pulse"
+                    >
+                      👑 {w.name}
                     </div>
-                    <span className={`font-extrabold ${rank === 0 ? 'text-amber-500' : 'text-white'}`}>
-                      {p.score} pts
-                    </span>
-                  </div>
-                ))}
-            </div>
-
-            <div className="flex flex-col gap-3">
-              {isHost ? (
-                <button onClick={handleNextRound} className="button-glow w-full py-3.5">
-                  Play Again
-                </button>
-              ) : (
-                <div className="banner bg-amber-500/10 text-amber-500 text-sm p-3 rounded-xl text-center mb-3">
-                  Waiting for host to restart game...
+                  ))}
                 </div>
-              )}
-              <button onClick={handleBackToLobby} className="button-outline w-full">
-                Exit to Lobby
-              </button>
-            </div>
+              </div>
+              
+              <div className="flex flex-col gap-5 mt-4">
+                {/* 1. Standings */}
+                <div className="text-left">
+                  <span className="text-[0.7rem] uppercase text-cyan-400 font-bold tracking-wider block mb-2">
+                    {"This Game's Standings"}
+                  </span>
+                  <div className="flex flex-col gap-1.5">
+                    {gameState.players
+                      .slice()
+                      .sort((a, b) => a.score - b.score)
+                      .map((p, index, sortedArr) => {
+                        const rank = sortedArr.filter(other => other.score < p.score).length;
+                        const isWinner = p.score === minScore;
+                        
+                        return (
+                          <div 
+                            key={p.playerId} 
+                            className="glass p-2 px-3 rounded-xl flex justify-between items-center text-xs"
+                            style={{ borderLeft: isWinner ? '3px solid var(--color-gold)' : '1px solid var(--border-glass)' }}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{isWinner ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : `#${rank + 1}`}</span>
+                              <span className="font-semibold">{p.name}</span>
+                            </div>
+                            <span className="font-extrabold text-gray-300">{p.score} pts</span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
 
+                {/* 2. Series Leaderboard */}
+                <div className="text-left border-t border-white/5 pt-4">
+                  <span className="text-[0.7rem] uppercase text-amber-500 font-bold tracking-wider block mb-2">
+                    🏆 Series Leaderboard (Total Wins)
+                  </span>
+                  <div className="flex flex-col gap-1.5">
+                    {gameState.players
+                      .slice()
+                      .sort((a, b) => (b.wins || 0) - (a.wins || 0))
+                      .map((p) => {
+                        const maxWins = Math.max(...gameState.players.map(pl => pl.wins || 0));
+                        const isLeader = (p.wins || 0) > 0 && (p.wins || 0) === maxWins;
+                        
+                        return (
+                          <div 
+                            key={p.playerId} 
+                            className="glass p-2 px-3 rounded-xl flex justify-between items-center text-xs"
+                            style={{ borderLeft: isLeader ? '3px solid var(--color-gold)' : '1px solid var(--border-glass)' }}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{isLeader ? '👑' : '👤'}</span>
+                              <span className="font-semibold">{p.name}</span>
+                            </div>
+                            <span className="font-extrabold text-amber-400">{(p.wins || 0)} {p.wins === 1 ? 'Win' : 'Wins'}</span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2.5 mt-6 border-t border-white/5 pt-4">
+                {isHost ? (
+                  <button onClick={handleNextRound} className="button-glow w-full py-3">
+                    Play Again
+                  </button>
+                ) : (
+                  <div className="banner bg-amber-500/10 text-amber-500 text-xs p-2.5 rounded-xl text-center">
+                    Waiting for host to restart game...
+                  </div>
+                )}
+                <button onClick={handleBackToLobby} className="button-outline w-full py-3">
+                  Exit to Lobby
+                </button>
+              </div>
+
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
     </div>
   );
