@@ -865,139 +865,80 @@ export default function RoomClient({ code }) {
 
       </div>
 
-      {/* 3. Bottom Row (Dashboard + Game Log) */}
-      <div className="w-full flex items-end justify-center gap-6 max-w-[1100px] mx-auto mt-3">
-        {/* Left Spacer to align with Reactions panel */}
-        <div className="w-[190px] shrink-0 hidden md:block"></div>
+      {/* 3. Bottom Row (Actions & Info Panel + Dashboard + Game Log) */}
+      <div className="w-full flex items-center justify-center gap-6 max-w-[1100px] mx-auto mt-2">
+        
+        {/* Left Panel: Actions & Info */}
+        <div className="glass p-3 rounded-2xl w-[190px] h-[215px] flex flex-col gap-1.5 shrink-0 border border-white/5 shadow-lg">
+          <span className="text-[0.7rem] uppercase text-gray-400 font-bold block mb-0.5 text-center tracking-wider border-b border-white/5 pb-1">
+            Actions & Info
+          </span>
 
-        {/* Center: Player Dashboard */}
-        <div
-          ref={el => { if (selfPlayer) playerBoxRefs.current[selfPlayer.id] = el; }}
-          className="glass flex-1 max-w-[620px] rounded-3xl p-4 px-6 flex flex-col items-center gap-4 border-t border-white/25 relative"
-        >
-
-        {/* Hand Cards first */}
-        <div className="grid gap-4 justify-items-center items-center min-h-[140px] mb-2" style={{ gridTemplateColumns: `repeat(${Math.ceil((selfPlayer?.cards.length || 4) / 2)}, minmax(0, 1fr))` }}>
-          {selfPlayer?.cards.map((card, idx) => {
-            const isSelectable = (isMyTurnActive && (
-                                  gameState.activeDrawnCard || 
-                                  gameState.actionState.type === 'peek' || 
-                                  gameState.actionState.type === 'swap' ||
-                                  gameState.actionState.type === 'look_and_swap'
-                                )) || (
-                                  gameState.overloadTransferState && 
-                                  gameState.overloadTransferState.sourcePlayerId === socketId
-                                );
-                                
-            const isClickable = gameState.status === 'playing';
-            const isSelected = selectedHandIndices.includes(idx) || (swapMyCardIndex === idx) || (transferCardIndex === idx);
-            const isSelectedOverload = overloadSelect && overloadSelect.playerId === socketId && overloadSelect.cardIndex === idx;
-
-            return (
-              <div key={card?.id || idx} className="animate-deal" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative' }}>
-                {renderCard(
-                  card, 
-                  () => isClickable && handleHandCardClick(idx), 
-                  isClickable || isSelectable, 
-                  isSelected,
-                  idx
-                )}
-                {isSelectedOverload && (
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOverloadAttempt(socketId, idx);
-                    }}
-                    className="button-glow"
-                    style={{ 
-                      position: 'absolute', 
-                      top: '38%', 
-                      left: '50%', 
-                      transform: 'translate(-50%, -50%)', 
-                      zIndex: 10, 
-                      padding: '6px 10px', 
-                      fontSize: '0.7rem',
-                      background: 'linear-gradient(135deg, var(--color-rose) 0%, var(--color-orange) 100%)',
-                      border: 'none',
-                      boxShadow: '0 0 12px var(--color-rose)'
-                    }}
-                  >
-                    Overload
-                  </button>
-                )}
-                <span style={{ fontSize: '0.7rem', color: 'var(--foreground-muted)', fontWeight: 700 }}>Card {idx + 1}</span>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Stats, Instructions, and Action Buttons below cards */}
-        <div className="w-full flex justify-between items-center border-t border-white/5 pt-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="status-dot online"></span>
-              <strong className="text-[1.05rem]">{selfPlayer?.name} (You)</strong>
-              <span className="text-xs bg-white/8 px-2 py-0.5 rounded-md text-gray-400">
-                Score: {selfPlayer?.score}
-              </span>
-            </div>
+          {/* User Stats block */}
+          <div className="flex items-center justify-center gap-1.5 border-b border-white/5 pb-1 text-center select-none shrink-0">
+            <span className="status-dot online shrink-0"></span>
+            <span className="text-[0.75rem] font-bold text-white truncate max-w-[75px]" title={`${selfPlayer?.name} (You)`}>
+              {selfPlayer?.name}
+            </span>
+            <span className="text-[0.65rem] bg-white/8 px-1.5 py-0.5 rounded text-gray-300 shrink-0">
+              {selfPlayer?.score} pts
+            </span>
+            <span className="text-[0.65rem] bg-amber-500/10 px-1.5 py-0.5 rounded text-amber-400 font-bold shrink-0">
+              🏆{selfPlayer?.wins || 0}
+            </span>
+          </div>
+          
+          <div className="text-cyan-400 text-[0.7rem] font-semibold leading-relaxed flex-1 flex items-center justify-center text-center overflow-y-auto pr-1">
+            {gameState.status === 'initial_peeking' && (
+              <span>👁️ Initial Peek: Memorize bottom two cards (Card 3 & 4), then click &quot;Done Peeking&quot;.</span>
+            )}
+            {gameState.status === 'playing' && isMyTurnActive && !gameState.activeDrawnCard && (
+              gameState.caboPlayerId === socketId ? (
+                <span>👉 You called CABO! Draw a card to complete your turn.</span>
+              ) : (
+                <span>👉 Your Turn: Draw from Deck/Discard, or call CABO.</span>
+              )
+            )}
+            {gameState.status === 'playing' && isMyTurnActive && gameState.activeDrawnCard && (
+              <span>🃏 Select card(s) to replace. Match equal values to discard multiple!</span>
+            )}
+            {gameState.status === 'playing' && !isMyTurnActive && (
+              <span className="text-gray-400">⏳ Waiting for {getActivePlayerName()}&apos;s turn...</span>
+            )}
             
-            <div className="text-cyan-400 text-sm mt-1.5 font-semibold">
-              {gameState.status === 'initial_peeking' && (
-                <span>👁️ Initial Peek: Memorize your bottom two cards (Card 3 and 4) of the 2x2 grid, then click "Done Peeking" when ready.</span>
-              )}
-              {gameState.status === 'playing' && isMyTurnActive && !gameState.activeDrawnCard && (
-                gameState.caboPlayerId === socketId ? (
-                  <span>👉 You called CABO! Complete your turn by drawing a card.</span>
+            {gameState.actionState.type === 'peek' && gameState.actionState.sourcePlayerId === socketId && (
+              <span className="text-emerald-500">🔍 Action Peek: Click one of your cards to peek.</span>
+            )}
+            {gameState.actionState.type === 'spy' && gameState.actionState.sourcePlayerId === socketId && (
+              <span className="text-cyan-500">🕵️ Action Spy: Click an opponent card to spy.</span>
+            )}
+            {(gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketId && (
+              <span className="text-violet-500">
+                {gameState.actionState.type === 'swap' ? '🔄 Swap: Select one of your cards and one opponent card.' : '👁️ Look & Swap: Select one of your cards and one opponent card.'}
+              </span>
+            )}
+            {gameState.overloadTransferState && (
+              <span className="text-amber-500">
+                {gameState.overloadTransferState.sourcePlayerId === socketId ? (
+                  `👉 Overload Success! Select one of your cards to transfer.`
                 ) : (
-                  <span>👉 Your Turn: Draw from the Deck or Discard pile. Or call CABO if ready.</span>
-                )
-              )}
-              {gameState.status === 'playing' && isMyTurnActive && gameState.activeDrawnCard && (
-                <span>🃏 Select hand card(s) to replace. Use matching values to discard multiple!</span>
-              )}
-              {gameState.status === 'playing' && !isMyTurnActive && (
-                <span className="text-gray-400">⏳ Waiting for {getActivePlayerName()}'s turn...</span>
-              )}
-              
-              {gameState.actionState.type === 'peek' && gameState.actionState.sourcePlayerId === socketId && (
-                <span className="text-emerald-500">🔍 Action Peek: Click one of your own hand cards to peek.</span>
-              )}
-              {gameState.actionState.type === 'spy' && gameState.actionState.sourcePlayerId === socketId && (
-                <span className="text-cyan-500">🕵️ Action Spy: Click any card of an opponent to spy.</span>
-              )}
-              {(gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketId && (
-                <span className="text-violet-500">
-                  {gameState.actionState.type === 'swap' ? '🔄 Action Swap: Swap cards without looking.' : '👁️ Action Look & Swap: Swap cards after looking at both.'}
-                  <br />
-                  Select one of your cards and one opponent card.
-                  {swapMyCardIndex !== null && ` (Selected My Card #${swapMyCardIndex + 1})`}
-                  {swapTarget !== null && ` (Selected Opponent Card)`}
-                </span>
-              )}
-              {gameState.overloadTransferState && (
-                <span className="text-amber-500">
-                  {gameState.overloadTransferState.sourcePlayerId === socketId ? (
-                    `👉 Overload Successful! Choose one of your own cards to transfer to ${gameState.players.find(p => p.id === gameState.overloadTransferState.targetPlayerId)?.name || 'Opponent'}.`
-                  ) : (
-                    `⏳ ${gameState.players.find(p => p.id === gameState.overloadTransferState.sourcePlayerId)?.name || 'Someone'} is transferring a card...`
-                  )}
-                </span>
-              )}
-            </div>
+                  `⏳ Transferring card...`
+                )}
+              </span>
+            )}
           </div>
 
-          <div>
+          <div className="flex flex-col gap-1.5 mt-auto">
             {gameState.status === 'initial_peeking' && !selfPlayer?.peeked && (
-              <button onClick={handleDonePeeking} className="button-glow px-4 py-2 text-[0.85rem]">
+              <button onClick={handleDonePeeking} className="button-glow w-full py-1.5 text-[0.7rem]">
                 Done Peeking
               </button>
             )}
             
-             {(gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketId && (
+            {(gameState.actionState.type === 'swap' || gameState.actionState.type === 'look_and_swap') && gameState.actionState.sourcePlayerId === socketId && (
               <button 
                 onClick={handleConfirmSwap} 
-                className="button-glow px-4 py-2 text-[0.85rem] bg-gradient-to-br from-violet-500 to-cyan-500"
+                className="button-glow w-full py-1.5 text-[0.7rem] bg-gradient-to-br from-violet-500 to-cyan-500"
                 disabled={swapMyCardIndex === null || swapTarget === null}
               >
                 Confirm Swap
@@ -1007,7 +948,7 @@ export default function RoomClient({ code }) {
             {gameState.overloadTransferState && gameState.overloadTransferState.sourcePlayerId === socketId && (
               <button 
                 onClick={handleConfirmTransfer} 
-                className="button-glow px-4 py-2 text-[0.85rem] bg-gradient-to-br from-amber-500 to-orange-500"
+                className="button-glow w-full py-1.5 text-[0.7rem] bg-gradient-to-br from-amber-500 to-orange-500"
                 disabled={transferCardIndex === null}
               >
                 Confirm Transfer
@@ -1017,7 +958,7 @@ export default function RoomClient({ code }) {
             {isMyTurnActive && gameState.activeDrawnCard && selectedHandIndices.length > 0 && (
               <button 
                 onClick={handleConfirmReplacement} 
-                className="button-glow px-4 py-2 text-[0.85rem]"
+                className="button-glow w-full py-1.5 text-[0.7rem]"
               >
                 {selectedHandIndices.length > 1 ? 'Match & Replace' : 'Replace Card'}
               </button>
@@ -1026,7 +967,7 @@ export default function RoomClient({ code }) {
             {isMyTurnActive && !gameState.activeDrawnCard && gameState.caboPlayerId === null && (
               <button 
                 onClick={handleCallCabo} 
-                className="button-glow px-4 py-2 text-[0.85rem] bg-gradient-to-br from-rose-500 to-violet-500 shadow-[0_4px_15px_rgba(244,63,94,0.3)]"
+                className="button-glow w-full py-1.5 text-[0.7rem] bg-gradient-to-br from-rose-500 to-violet-500"
               >
                 Call CABO!
               </button>
@@ -1034,7 +975,68 @@ export default function RoomClient({ code }) {
           </div>
         </div>
 
-      </div>
+        {/* Center: Player Dashboard */}
+        <div
+          ref={el => { if (selfPlayer) playerBoxRefs.current[selfPlayer.id] = el; }}
+          className="glass flex-1 max-w-[620px] rounded-3xl p-3 px-6 flex flex-col items-center justify-center border-t border-white/25 relative"
+        >
+
+          {/* Hand Cards first */}
+          <div className="grid gap-4 justify-items-center items-center min-h-[140px]" style={{ gridTemplateColumns: `repeat(${Math.ceil((selfPlayer?.cards.length || 4) / 2)}, minmax(0, 1fr))` }}>
+            {selfPlayer?.cards.map((card, idx) => {
+              const isSelectable = (isMyTurnActive && (
+                                    gameState.activeDrawnCard || 
+                                    gameState.actionState.type === 'peek' || 
+                                    gameState.actionState.type === 'swap' ||
+                                    gameState.actionState.type === 'look_and_swap'
+                                  )) || (
+                                    gameState.overloadTransferState && 
+                                    gameState.overloadTransferState.sourcePlayerId === socketId
+                                  );
+                                  
+              const isClickable = gameState.status === 'playing';
+              const isSelected = selectedHandIndices.includes(idx) || (swapMyCardIndex === idx) || (transferCardIndex === idx);
+              const isSelectedOverload = overloadSelect && overloadSelect.playerId === socketId && overloadSelect.cardIndex === idx;
+
+              return (
+                <div key={card?.id || idx} className="animate-deal" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative' }}>
+                  {renderCard(
+                    card, 
+                    () => isClickable && handleHandCardClick(idx), 
+                    isClickable || isSelectable, 
+                    isSelected,
+                    idx
+                  )}
+                  {isSelectedOverload && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOverloadAttempt(socketId, idx);
+                      }}
+                      className="button-glow"
+                      style={{ 
+                        position: 'absolute', 
+                        top: '38%', 
+                        left: '50%', 
+                        transform: 'translate(-50%, -50%)', 
+                        zIndex: 10, 
+                        padding: '6px 10px', 
+                        fontSize: '0.7rem',
+                        background: 'linear-gradient(135deg, var(--color-rose) 0%, var(--color-orange) 100%)',
+                        border: 'none',
+                        boxShadow: '0 0 12px var(--color-rose)'
+                      }}
+                    >
+                      Overload
+                    </button>
+                  )}
+                  <span style={{ fontSize: '0.7rem', color: 'var(--foreground-muted)', fontWeight: 700 }}>Card {idx + 1}</span>
+                </div>
+              );
+            })}
+          </div>
+
+        </div>
 
       {/* Right Panel: Game Log (Bottom Right) */}
       <div className="glass p-3.5 rounded-2xl w-[260px] flex flex-col gap-2 shrink-0 border border-white/5 shadow-lg mb-0">
@@ -1121,7 +1123,7 @@ export default function RoomClient({ code }) {
                 {renderCard({ ...lookSwapReveal.myCard, hidden: false }, null, false, false)}
               </div>
               <div className="flex flex-col items-center gap-2">
-                <span className="text-[0.75rem] font-bold">{lookSwapReveal.targetName}'s Card</span>
+                <span className="text-[0.75rem] font-bold">{lookSwapReveal.targetName}&apos;s Card</span>
                 {renderCard({ ...lookSwapReveal.targetCard, hidden: false }, null, false, false)}
               </div>
             </div>
