@@ -550,13 +550,13 @@ function transferOverloadCard(room, playerId, sourceCardIndex) {
 }
 
 function removePlayerMidGame(room, targetPlayerId) {
-  const playerIndex = room.players.findIndex(p => p.id === targetPlayerId);
+  const playerIndex = room.players.findIndex(p => p.playerId === targetPlayerId);
   if (playerIndex === -1) return;
 
   const kickedPlayer = room.players[playerIndex];
 
   // 1. If the kicked player called CABO, clear it
-  if (room.caboPlayerId === targetPlayerId) {
+  if (room.caboPlayerId === kickedPlayer.id) {
     room.caboPlayerId = null;
     room.logs.push(`cabo: CABO caller ${kickedPlayer.name} was removed. CABO call cancelled.`);
   }

@@ -253,9 +253,10 @@ export default function RoomClient({ code }) {
   };
 
   const handleKickPlayer = (targetPlayerId) => {
-    const p = players.find(player => player.id === targetPlayerId);
+    const p = players.find(player => player.playerId === targetPlayerId) || 
+              (gameState && gameState.players.find(player => player.playerId === targetPlayerId));
     if (p) {
-      setKickConfirmPlayer({ id: targetPlayerId, name: p.name });
+      setKickConfirmPlayer({ playerId: targetPlayerId, name: p.name });
     }
   };
 
@@ -562,7 +563,7 @@ export default function RoomClient({ code }) {
             <button 
               onClick={() => {
                 if (socketRef.current) {
-                  socketRef.current.emit('kick_player', { roomCode, targetPlayerId: kickConfirmPlayer.id });
+                  socketRef.current.emit('kick_player', { roomCode, targetPlayerId: kickConfirmPlayer.playerId });
                 }
                 setKickConfirmPlayer(null);
               }} 
@@ -692,7 +693,7 @@ export default function RoomClient({ code }) {
                     )}
                     {isHost && !p.isHost && (
                       <button 
-                        onClick={() => handleKickPlayer(p.id)}
+                        onClick={() => handleKickPlayer(p.playerId)}
                         className="text-xs bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white px-2.5 py-1 rounded-lg font-bold border border-rose-500/30 transition-all cursor-pointer"
                       >
                         Kick
@@ -874,7 +875,7 @@ export default function RoomClient({ code }) {
                   <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{opponent.name}</span>
                   {isHost && (
                     <button 
-                      onClick={() => handleKickPlayer(opponent.id)}
+                      onClick={() => handleKickPlayer(opponent.playerId)}
                       className="text-[0.6rem] bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white px-1.5 py-0.5 rounded font-bold border border-rose-500/30 transition-all cursor-pointer"
                       title="Kick Player"
                     >
