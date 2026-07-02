@@ -90,14 +90,15 @@ io.on('connection', (socket) => {
       caboPlayerId: null,
       turnsLeft: null,
       activeDrawnCard: null,
-      roundNumber: 0
+      roundNumber: 0,
+      lobbyTurnTimer: 45
     };
 
     rooms.set(code, lobbyState);
     socketToPlayerMap.set(socket.id, { roomCode: code, playerId });
 
     socket.join(code);
-    socket.emit('room_joined', { roomCode: code, players: lobbyState.players, isHost: true });
+    socket.emit('room_joined', { roomCode: code, players: lobbyState.players, isHost: true, lobbyTurnTimer: 45 });
     console.log(`Room created: ${code} by player: ${playerName}`);
   });
 
@@ -133,7 +134,8 @@ io.on('connection', (socket) => {
         roomCode: code, 
         players: room.players, 
         isHost: player.isHost,
-        gameState: room.status !== 'lobby' ? room : null
+        gameState: room.status !== 'lobby' ? room : null,
+        lobbyTurnTimer: room.lobbyTurnTimer || 45
       });
 
       // Broadcast updated room state to other players
@@ -178,7 +180,7 @@ io.on('connection', (socket) => {
     socketToPlayerMap.set(socket.id, { roomCode: code, playerId });
 
     socket.join(code);
-    socket.emit('room_joined', { roomCode: code, players: room.players, isHost: false });
+    socket.emit('room_joined', { roomCode: code, players: room.players, isHost: false, lobbyTurnTimer: room.lobbyTurnTimer || 45 });
     
     // Notify other players
     io.to(code).emit('room_updated', room.players);
@@ -235,6 +237,28 @@ io.on('connection', (socket) => {
     console.log(`Player ${kickedPlayer.name} was kicked from Room ${code} by the host.`);
   });
 
+  // Update Lobby Turn Timer (Host only)
+  socket.on('update_lobby_timer', ({ roomCode, lobbyTurnTimer }) => {
+    const code = roomCode.toUpperCase();
+    if (!rooms.has(code)) return;
+    const room = rooms.get(code);
+
+    // Verify requester is the host
+    const requester = room.players.find(p => p.id === socket.id);
+    if (!requester || !requester.isHost) {
+      socket.emit('error_message', 'Only the host can update the turn timer.');
+      return;
+    }
+
+    // Limit cooldown time range to safe values (e.g. min 15s)
+    const timerValue = Math.max(15, lobbyTurnTimer);
+    room.lobbyTurnTimer = timerValue;
+
+    // Broadcast updated timer value to everyone in the room
+    io.to(code).emit('lobby_timer_updated', timerValue);
+    console.log(`Room ${code} turn timer updated to ${timerValue}s`);
+  });
+
   // Start Game
   socket.on('start_game', ({ roomCode }) => {
     const code = roomCode.toUpperCase();
@@ -253,8 +277,14 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Keep reference to lobbyTurnTimer before initializing game state
+    const selectedTimer = room.lobbyTurnTimer || 45;
+
     // Initialize game state using engine
     const initialGameState = gameEngine.initRoomState(code, room.players);
+    initialGameState.lobbyTurnTimer = selectedTimer;
+    initialGameState.turnTimerDuration = selectedTimer * 1000;
+
     rooms.set(code, initialGameState);
 
     // Broadcast game started to everyone in room
@@ -544,6 +574,7 @@ function checkAndHandleGameOver(room) {
       const r = rooms.get(room.roomCode);
       if (r) {
         if (r.exposedCardTimer) clearTimeout(r.exposedCardTimer);
+        if (r.turnTimer) clearTimeout(r.turnTimer);
         rooms.delete(room.roomCode);
       }
       scheduledForCleanup.delete(room.roomCode);
@@ -554,6 +585,9 @@ function checkAndHandleGameOver(room) {
 
 // Helper to send game state to all room players (sanitizing secret card info)
 function sendGameStateToAll(roomCode, room) {
+  // Manage Turn Timer
+  manageTurnTimer(roomCode, room);
+
   checkAndHandleGameOver(room);
   
   // We send customized state to each socket depending on who they are
@@ -565,6 +599,45 @@ function sendGameStateToAll(roomCode, room) {
     if (socket) {
       socket.emit('game_state_updated', sanitizeGameState(room, socketId));
     }
+  }
+}
+
+function manageTurnTimer(roomCode, room) {
+  // Only manage timer if room status is 'playing'
+  if (room.status !== 'playing') {
+    if (room.turnTimer) {
+      clearTimeout(room.turnTimer);
+      room.turnTimer = null;
+    }
+    delete room.turnTimerStartedAt;
+    delete room.turnTimerDuration;
+    delete room.lastTurnIndex;
+    delete room.lastRoundNumber;
+    return;
+  }
+
+  // If the turn index or round number has changed, restart the timer!
+  if (room.lastTurnIndex !== room.turnIndex || room.lastRoundNumber !== room.roundNumber) {
+    if (room.turnTimer) {
+      clearTimeout(room.turnTimer);
+    }
+    
+    room.lastTurnIndex = room.turnIndex;
+    room.lastRoundNumber = room.roundNumber;
+    
+    room.turnTimerStartedAt = Date.now();
+    room.turnTimerDuration = (room.lobbyTurnTimer || 45) * 1000;
+    
+    room.turnTimer = setTimeout(() => {
+      console.log(`Room ${roomCode}: Player index ${room.turnIndex} timed out.`);
+      gameEngine.handleTurnTimeout(room);
+      
+      // Reset timer tracking so the next turn starts a new timer
+      delete room.lastTurnIndex; 
+      
+      // Send state update
+      sendGameStateToAll(roomCode, room);
+    }, room.turnTimerDuration);
   }
 }
 
@@ -628,7 +701,9 @@ function sanitizeGameState(room, socketId = null) {
     logs: room.logs,
     overloadTransferState: room.overloadTransferState,
     hasOverloadedCurrentDiscard: room.hasOverloadedCurrentDiscard,
-    exposedCard: room.exposedCard
+    exposedCard: room.exposedCard,
+    turnTimerStartedAt: room.turnTimerStartedAt,
+    turnTimerDuration: room.turnTimerDuration
   };
 }
 

@@ -592,6 +592,31 @@ function removePlayerMidGame(room, targetPlayerId) {
   }
 }
 
+function handleTurnTimeout(room) {
+  if (room.status !== 'playing') return;
+
+  const activePlayer = room.players[room.turnIndex];
+  if (!activePlayer) return;
+
+  room.logs.push(`⏰ Timeout! ${activePlayer.name}'s turn timed out. Dealt 1 penalty card.`);
+
+  // 1. If player had an active drawn card, push it to discard pile
+  if (room.activeDrawnCard) {
+    pushToDiscardPile(room, room.activeDrawnCard);
+    room.activeDrawnCard = null;
+    room.drawnCardSource = null;
+  }
+
+  // 2. Clear any active actions
+  room.actionState = { type: 'none', sourcePlayerId: null, targetPlayerId: null, selectedCards: [] };
+
+  // 3. Deal penalty card
+  dealPenaltyCards(room, activePlayer, 1);
+
+  // 4. Advance turn
+  advanceTurn(room);
+}
+
 module.exports = {
   initRoomState,
   initNextRound,
@@ -604,5 +629,6 @@ module.exports = {
   callCabo,
   overloadCard,
   transferOverloadCard,
-  removePlayerMidGame
+  removePlayerMidGame,
+  handleTurnTimeout
 };

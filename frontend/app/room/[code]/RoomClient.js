@@ -24,6 +24,8 @@ export default function RoomClient({ code }) {
   const [spiedOnNotification, setSpiedOnNotification] = useState(null);
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [kickConfirmPlayer, setKickConfirmPlayer] = useState(null);
+  const [turnSecondsLeft, setTurnSecondsLeft] = useState(null);
+  const [lobbyTurnTimer, setLobbyTurnTimer] = useState(45);
   
   // Swap action local selections
   const [swapMyCardIndex, setSwapMyCardIndex] = useState(null);
@@ -45,6 +47,27 @@ export default function RoomClient({ code }) {
   const [socketId, setSocketId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!gameState || gameState.status !== 'playing' || !gameState.turnTimerStartedAt) {
+      const t = setTimeout(() => {
+        setTurnSecondsLeft(prev => prev !== null ? null : prev);
+      }, 0);
+      return () => clearTimeout(t);
+    }
+
+    const updateTime = () => {
+      const elapsed = Date.now() - gameState.turnTimerStartedAt;
+      const remaining = Math.max(0, gameState.turnTimerDuration - elapsed);
+      const seconds = Math.ceil(remaining / 1000);
+      setTurnSecondsLeft(seconds);
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 100);
+
+    return () => clearInterval(interval);
+  }, [gameState]);
 
   useEffect(() => {
     const name = localStorage.getItem('cabo_player_name');
@@ -71,10 +94,13 @@ export default function RoomClient({ code }) {
       }
     });
 
-    socket.on('room_joined', ({ roomCode: joinedCode, players: initialPlayers, isHost: hostStatus, gameState: activeGame }) => {
+    socket.on('room_joined', ({ roomCode: joinedCode, players: initialPlayers, isHost: hostStatus, gameState: activeGame, lobbyTurnTimer: serverTimer }) => {
       setRoomCode(joinedCode);
       setPlayers(initialPlayers);
       setIsHost(hostStatus);
+      if (serverTimer) {
+        setLobbyTurnTimer(serverTimer);
+      }
       if (activeGame) {
         setGameState(activeGame);
       }
@@ -91,6 +117,10 @@ export default function RoomClient({ code }) {
       Object.keys(playerBoxRefs.current).forEach(id => {
         if (!activeIds.has(id)) delete playerBoxRefs.current[id];
       });
+    });
+
+    socket.on('lobby_timer_updated', (serverTimer) => {
+      setLobbyTurnTimer(serverTimer);
     });
 
     socket.on('game_started', (state) => {
@@ -226,6 +256,13 @@ export default function RoomClient({ code }) {
     const p = players.find(player => player.id === targetPlayerId);
     if (p) {
       setKickConfirmPlayer({ id: targetPlayerId, name: p.name });
+    }
+  };
+
+  const handleUpdateTimer = (newValue) => {
+    setLobbyTurnTimer(newValue);
+    if (socketRef.current) {
+      socketRef.current.emit('update_lobby_timer', { roomCode, lobbyTurnTimer: newValue });
     }
   };
 
@@ -509,6 +546,104 @@ export default function RoomClient({ code }) {
     );
   }
 
+  const renderKickConfirmModal = () => {
+    if (!kickConfirmPlayer) return null;
+    return (
+      <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/80 z-[2500]">
+        <div className="glass glass-heavy max-w-[340px] w-full flex flex-col items-center p-6 rounded-2xl border-rose-500/40 shadow-[0_0_20px_rgba(244,63,94,0.25)] text-center animate-pulse">
+          <div className="text-3xl mb-3">⚠️</div>
+          <h3 className="text-lg font-extrabold mb-3 text-rose-400">
+            Confirm Player Kick
+          </h3>
+          <p className="text-sm text-gray-300 mb-6 leading-relaxed">
+            Are you sure you want to kick <strong>{kickConfirmPlayer.name}</strong> from the room?
+          </p>
+          <div className="flex gap-3 w-full">
+            <button 
+              onClick={() => {
+                if (socketRef.current) {
+                  socketRef.current.emit('kick_player', { roomCode, targetPlayerId: kickConfirmPlayer.id });
+                }
+                setKickConfirmPlayer(null);
+              }} 
+              className="button-glow flex-1 bg-rose-600 hover:bg-rose-500 text-xs py-2"
+            >
+              Yes, Kick
+            </button>
+            <button 
+              onClick={() => setKickConfirmPlayer(null)} 
+              className="button-outline flex-1 text-xs py-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRulesModal = () => {
+    if (!showRulesModal) return null;
+    return (
+      <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/85 z-[2500]">
+        <div className="glass-heavy glass-card max-w-[560px] w-[90%] rounded-2xl p-6 md:p-8 text-left max-h-[85vh] overflow-y-auto">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-extrabold bg-gradient-to-br from-cyan-500 to-violet-500 bg-clip-text text-transparent">
+              How to Play CABO
+            </h2>
+            <button 
+              onClick={() => setShowRulesModal(false)} 
+              className="bg-transparent border-none text-gray-400 text-2xl cursor-pointer hover:text-white transition-colors"
+            >
+              &times;
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-4 overflow-y-auto text-[0.85rem] md:text-sm leading-relaxed pr-2 text-gray-300">
+            <div><strong>Objective:</strong> End the game with the lowest total card points. You start with 4 face-down cards and must swap/match to minimize their values.</div>
+            <hr className="border-white/10" />
+            <div><strong>1. Setup & Peeking:</strong> At the start of the round, you get 4 cards in a 2x2 matrix. You can peek at your <b>Bottom 2 Cards</b> (Card 3 and 4) to memorize their values.</div>
+            <div><strong>2. On Your Turn:</strong> Draw a card. You can:
+              <ul className="list-disc pl-5 mt-1">
+                <li>Draw from <b>Deck</b>: peek at the card, then either <b>Replace</b> one of your cards with it, or <b>Discard</b> it.</li>
+                <li>Draw from <b>Discard Pile</b>: you <b>Must</b> use it to replace one of your cards.</li>
+              </ul>
+            </div>
+            <div><strong>3. Special Card Actions (activated when discarded from Deck):</strong>
+              <ul className="list-disc pl-5 mt-1">
+                <li><strong className="text-emerald-400">7 or 8 (Know your Fate):</strong> Peek at one of your own cards.</li>
+                <li><strong className="text-cyan-400">9 or 10:</strong> Peek at one card of any of the opponents.</li>
+                <li><strong className="text-violet-400">Queen:</strong> Swap one of your cards with an opponent&apos;s card without looking.</li>
+                <li><strong className="text-amber-400">King:</strong> Swap one of your cards with an opponent&apos;s card after looking at both.</li>
+              </ul>
+            </div>
+            <div><strong>4. Card Points:</strong>
+              <ul className="list-disc pl-5 mt-1">
+                <li>Aces = 1 point | 2 to 10 = face value | Queen & King = 10 points</li>
+                <li><strong className="text-rose-400">Jack = -1 point! (Negative scoring card)</strong></li>
+              </ul>
+            </div>
+            <div><strong>5. Card Matching (Reduce Hand Size):</strong> When replacing a card, you can select <b>Multiple Matching Cards</b> from your hand (e.g. two 5s). If they match, they are all discarded, and the new card takes the slot of the first one. Mismatching gives you a penalty card!</div>
+            <div><strong>6. Calling CABO:</strong> When it is your turn, if you believe you have the lowest sum of card points, you can call <b>CABO</b>. You then complete your turn. Every other player gets one final turn. When it reaches your turn again, the round ends.
+              <ul className="list-disc pl-5 mt-1">
+                <li>If the <b>CABO</b> caller has the lowest score: they <b>WIN</b> the round.</li>
+              </ul>
+            </div>
+            <div><strong>7. Series Play:</strong> Each round played is a standalone game. The system tracks how many games each player has won over multiple rounds to decide the overall series champion!</div>
+            <div><strong>8. Turn Timer:</strong> Each player has a configured turn timer (shown in the Actions & Info panel) to complete their turn. Failing to complete your turn before the timer expires results in a penalty card dealt from the deck, and your turn is automatically skipped to the next player.</div>
+          </div>
+
+          <button 
+            onClick={() => setShowRulesModal(false)} 
+            className="button-glow w-full mt-5 py-2.5 text-xs"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // --- LOBBY SCREEN ---
   if (!gameState || gameState.status === 'lobby') {
     return (
@@ -571,22 +706,74 @@ export default function RoomClient({ code }) {
 
           <div className="flex flex-col gap-4">
             {isHost ? (
-              <button 
-                onClick={handleStartGame} 
-                className="button-glow w-full py-3.5"
-                disabled={players.length < 2 || !connected}
-              >
-                {players.length < 2 ? 'Need at least 2 players' : 'Start CABO Game'}
-              </button>
+              <>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setShowRulesModal(true)} 
+                    className="button-outline py-0 flex items-center justify-center text-[0.8rem] font-extrabold tracking-wide"
+                    style={{ flex: 3, minHeight: '52px', margin: 0 }}
+                  >
+                    Game Rules 📖
+                  </button>
+
+                  {/* Turn Timer Selector (Host only) */}
+                  <div className="glass p-2 px-2.5 rounded-xl border border-white/5 flex flex-col justify-between select-none" style={{ flex: 2 }}>
+                    <div className="text-[0.6rem] text-gray-400 font-bold uppercase tracking-wider text-center w-full">
+                      Turn Timer
+                    </div>
+                    <div className="flex items-center justify-between mt-1 gap-1">
+                      <button 
+                        onClick={() => handleUpdateTimer(Math.max(15, lobbyTurnTimer - 15))}
+                        className="w-5 h-5 rounded glass flex items-center justify-center font-bold text-xs hover:bg-white/10 active:scale-95 transition-all text-rose-400 cursor-pointer border border-white/5 p-0"
+                      >
+                        -
+                      </button>
+                      <span className="font-extrabold text-white text-sm w-7 text-center">{lobbyTurnTimer}s</span>
+                      <button 
+                        onClick={() => handleUpdateTimer(lobbyTurnTimer + 15)}
+                        className="w-5 h-5 rounded glass flex items-center justify-center font-bold text-xs hover:bg-white/10 active:scale-95 transition-all text-emerald-400 cursor-pointer border border-white/5 p-0"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleStartGame} 
+                  className="button-glow w-full py-3.5"
+                  disabled={players.length < 2 || !connected}
+                >
+                  {players.length < 2 ? 'Need at least 2 players' : 'Start CABO Game'}
+                </button>
+              </>
             ) : (
-              <div className="banner bg-cyan-500/10 text-cyan-400 text-sm p-4 rounded-xl text-center">
-                Waiting for the host to start the game...
-              </div>
+              <>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setShowRulesModal(true)} 
+                    className="button-outline py-0 flex items-center justify-center text-[0.8rem] font-extrabold tracking-wide"
+                    style={{ flex: 3, minHeight: '52px', margin: 0 }}
+                  >
+                    Game Rules 📖
+                  </button>
+
+                  {/* Turn Timer View (Guests) */}
+                  <div className="glass p-2 px-3 rounded-xl border border-white/5 flex flex-col justify-center select-none" style={{ flex: 2, minHeight: '52px' }}>
+                    <div className="text-[0.6rem] text-gray-400 font-bold uppercase tracking-wider text-center w-full">
+                      Turn Timer
+                    </div>
+                    <div className="text-center font-extrabold text-cyan-400 text-sm mt-1">
+                      ⏱️ {lobbyTurnTimer}s
+                    </div>
+                  </div>
+                </div>
+
+                <div className="banner bg-cyan-500/10 text-cyan-400 text-sm p-4 rounded-xl text-center">
+                  Waiting for the host to start the game...
+                </div>
+              </>
             )}
-            
-            <button onClick={() => setShowRulesModal(true)} className="button-outline w-full py-3">
-              📖 Rules & How to Play
-            </button>
             
             <button onClick={handleBackToLobby} className="button-outline w-full">
               Leave Room
@@ -594,6 +781,9 @@ export default function RoomClient({ code }) {
           </div>
 
         </div>
+
+        {renderKickConfirmModal()}
+        {renderRulesModal()}
       </main>
     );
   }
@@ -930,17 +1120,27 @@ export default function RoomClient({ code }) {
           </div>
 
           {/* User Stats block */}
-          <div className="flex items-center justify-center gap-1.5 border-b border-white/5 pb-1 text-center select-none shrink-0">
-            <span className="status-dot online shrink-0"></span>
-            <span className="text-[0.75rem] font-bold text-white truncate max-w-[75px]" title={`${selfPlayer?.name} (You)`}>
-              {selfPlayer?.name}
-            </span>
-            <span className="text-[0.65rem] bg-white/8 px-1.5 py-0.5 rounded text-gray-300 shrink-0">
-              {selfPlayer?.score} pts
-            </span>
-            <span className="text-[0.65rem] bg-amber-500/10 px-1.5 py-0.5 rounded text-amber-400 font-bold shrink-0">
-              🏆{selfPlayer?.wins || 0}
-            </span>
+          <div className="flex items-center justify-between border-b border-white/5 pb-1 text-center select-none shrink-0 w-full">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="status-dot online shrink-0"></span>
+              <span className="text-[0.75rem] font-bold text-white truncate max-w-[50px]" title={`${selfPlayer?.name} (You)`}>
+                {selfPlayer?.name}
+              </span>
+            </div>
+            
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[0.65rem] bg-white/8 px-1 py-0.5 rounded text-gray-300">
+                {selfPlayer?.score}p
+              </span>
+              <span className="text-[0.65rem] bg-amber-500/10 px-1 py-0.5 rounded text-amber-400 font-bold">
+                🏆{selfPlayer?.wins || 0}
+              </span>
+              {gameState?.status === 'playing' && turnSecondsLeft !== null && (
+                <span className={`text-[0.65rem] font-extrabold px-1 py-0.5 rounded flex items-center gap-0.5 animate-pulse ${turnSecondsLeft <= 10 ? 'bg-rose-500/20 text-rose-400' : 'bg-cyan-500/10 text-cyan-400'}`}>
+                  ⏱️{turnSecondsLeft}s
+                </span>
+              )}
+            </div>
           </div>
           
           <div className="text-cyan-400 text-[0.7rem] font-semibold leading-relaxed flex-1 flex items-center justify-center text-center overflow-y-auto pr-1">
@@ -1355,98 +1555,8 @@ export default function RoomClient({ code }) {
         );
       })()}
 
-      {/* --- KICK CONFIRMATION MODAL --- */}
-      {kickConfirmPlayer && (
-        <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/80 z-[2500]">
-          <div className="glass glass-heavy max-w-[340px] w-full flex flex-col items-center p-6 rounded-2xl border-rose-500/40 shadow-[0_0_20px_rgba(244,63,94,0.25)] text-center animate-pulse">
-            <div className="text-3xl mb-3">⚠️</div>
-            <h3 className="text-lg font-extrabold mb-3 text-rose-400">
-              Confirm Player Kick
-            </h3>
-            <p className="text-sm text-gray-300 mb-6 leading-relaxed">
-              Are you sure you want to kick <strong>{kickConfirmPlayer.name}</strong> from the room?
-            </p>
-            <div className="flex gap-3 w-full">
-              <button 
-                onClick={() => {
-                  if (socketRef.current) {
-                    socketRef.current.emit('kick_player', { roomCode, targetPlayerId: kickConfirmPlayer.id });
-                  }
-                  setKickConfirmPlayer(null);
-                }} 
-                className="button-glow flex-1 bg-rose-600 hover:bg-rose-500 text-xs py-2"
-              >
-                Yes, Kick
-              </button>
-              <button 
-                onClick={() => setKickConfirmPlayer(null)} 
-                className="button-outline flex-1 text-xs py-2"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- RULES MODAL DIALOG --- */}
-      {showRulesModal && (
-        <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/85 z-[2500]">
-          <div className="glass-heavy glass-card max-w-[560px] w-[90%] rounded-2xl p-6 md:p-8 text-left max-h-[85vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-extrabold bg-gradient-to-br from-cyan-500 to-violet-500 bg-clip-text text-transparent">
-                How to Play CABO
-              </h2>
-              <button 
-                onClick={() => setShowRulesModal(false)} 
-                className="bg-transparent border-none text-gray-400 text-2xl cursor-pointer hover:text-white transition-colors"
-              >
-                &times;
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-4 overflow-y-auto text-[0.85rem] md:text-sm leading-relaxed pr-2 text-gray-300">
-              <div><strong>Objective:</strong> End the game with the lowest total card points. You start with 4 face-down cards and must swap/match to minimize their values.</div>
-              <hr className="border-white/10" />
-              <div><strong>1. Setup & Peeking:</strong> At the start of the round, you get 4 cards in a 2x2 matrix. You can peek at your <b>Bottom 2 Cards</b> (Card 3 and 4) to memorize their values.</div>
-              <div><strong>2. On Your Turn:</strong> Draw a card. You can:
-                <ul className="list-disc pl-5 mt-1">
-                  <li>Draw from <b>Deck</b>: peek at the card, then either <b>Replace</b> one of your cards with it, or <b>Discard</b> it.</li>
-                  <li>Draw from <b>Discard Pile</b>: you <b>Must</b> use it to replace one of your cards.</li>
-                </ul>
-              </div>
-              <div><strong>3. Special Card Actions (activated when discarded from Deck):</strong>
-                <ul className="list-disc pl-5 mt-1">
-                  <li><strong className="text-emerald-400">7 or 8 (Know your Fate):</strong> Peek at one of your own cards.</li>
-                  <li><strong className="text-cyan-400">9 or 10:</strong> Peek at one card of any of the opponents.</li>
-                  <li><strong className="text-violet-400">Queen:</strong> Swap one of your cards with an opponent&apos;s card without looking.</li>
-                  <li><strong className="text-amber-400">King:</strong> Swap one of your cards with an opponent&apos;s card after looking at both.</li>
-                </ul>
-              </div>
-              <div><strong>4. Card Points:</strong>
-                <ul className="list-disc pl-5 mt-1">
-                  <li>Aces = 1 point | 2 to 10 = face value | Queen & King = 10 points</li>
-                  <li><strong className="text-rose-400">Jack = -1 point! (Negative scoring card)</strong></li>
-                </ul>
-              </div>
-              <div><strong>5. Card Matching (Reduce Hand Size):</strong> When replacing a card, you can select <b>Multiple Matching Cards</b> from your hand (e.g. two 5s). If they match, they are all discarded, and the new card takes the slot of the first one. Mismatching gives you a penalty card!</div>
-              <div><strong>6. Calling CABO:</strong> When it is your turn, if you believe you have the lowest sum of card points, you can call <b>CABO</b>. You then complete your turn. Every other player gets one final turn. When it reaches your turn again, the round ends.
-                <ul className="list-disc pl-5 mt-1">
-                  <li>If the <b>CABO</b> caller has the lowest score: they <b>WIN</b> the round.</li>
-                </ul>
-              </div>
-              <div><strong>7. Series Play:</strong> Each round played is a standalone game. The system tracks how many games each player has won over multiple rounds to decide the overall series champion!</div>
-            </div>
-
-            <button 
-              onClick={() => setShowRulesModal(false)} 
-              className="button-glow w-full mt-5 py-2.5 text-xs"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      )}
+      {renderKickConfirmModal()}
+      {renderRulesModal()}
 
     </div>
   );
