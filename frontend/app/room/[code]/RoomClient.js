@@ -22,6 +22,7 @@ export default function RoomClient({ code }) {
   const [actionRevealCard, setActionRevealCard] = useState(null);
   const [actionRevealTitle, setActionRevealTitle] = useState('');
   const [spiedOnNotification, setSpiedOnNotification] = useState(null);
+  const [showRulesModal, setShowRulesModal] = useState(false);
   
   // Swap action local selections
   const [swapMyCardIndex, setSwapMyCardIndex] = useState(null);
@@ -559,6 +560,10 @@ export default function RoomClient({ code }) {
               </div>
             )}
             
+            <button onClick={() => setShowRulesModal(true)} className="button-outline w-full py-3">
+              📖 Rules & How to Play
+            </button>
+            
             <button onClick={handleBackToLobby} className="button-outline w-full">
               Leave Room
             </button>
@@ -860,8 +865,15 @@ export default function RoomClient({ code }) {
 
         </div>
 
-        {/* Right Panel Spacer to center the play area */}
-        <div className="w-[260px] shrink-0 hidden md:block"></div>
+        {/* Right Panel: Rules Button to align and pop up Rules dialog */}
+        <div className="w-[260px] shrink-0 hidden md:flex items-center justify-center">
+          <button 
+            onClick={() => setShowRulesModal(true)} 
+            className="button-outline max-w-[190px] w-full py-2.5 text-xs flex items-center justify-center gap-1.5"
+          >
+            📖 Rules
+          </button>
+        </div>
 
       </div>
 
@@ -870,9 +882,17 @@ export default function RoomClient({ code }) {
         
         {/* Left Panel: Actions & Info */}
         <div className="glass p-3 rounded-2xl w-[190px] h-[195px] flex flex-col gap-1.5 shrink-0 border border-white/5 shadow-lg">
-          <span className="text-[0.7rem] uppercase text-gray-400 font-bold block mb-0.5 text-center tracking-wider border-b border-white/5 pb-1">
-            Actions & Info
-          </span>
+          <div className="flex justify-between items-center border-b border-white/5 pb-1 select-none">
+            <span className="text-[0.7rem] uppercase text-gray-400 font-bold tracking-wider">
+              Actions & Info
+            </span>
+            <button 
+              onClick={() => setShowRulesModal(true)} 
+              className="text-[0.65rem] text-cyan-400 hover:text-cyan-300 font-bold bg-transparent border-none cursor-pointer p-0"
+            >
+              Rules 📖
+            </button>
+          </div>
 
           {/* User Stats block */}
           <div className="flex items-center justify-center gap-1.5 border-b border-white/5 pb-1 text-center select-none shrink-0">
@@ -1299,6 +1319,65 @@ export default function RoomClient({ code }) {
           </div>
         );
       })()}
+
+      {/* --- RULES MODAL DIALOG --- */}
+      {showRulesModal && (
+        <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/85 z-[2500]">
+          <div className="glass-heavy glass-card max-w-[560px] w-[90%] rounded-2xl p-6 md:p-8 text-left max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-extrabold bg-gradient-to-br from-cyan-500 to-violet-500 bg-clip-text text-transparent">
+                How to Play CABO
+              </h2>
+              <button 
+                onClick={() => setShowRulesModal(false)} 
+                className="bg-transparent border-none text-gray-400 text-2xl cursor-pointer hover:text-white transition-colors"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4 overflow-y-auto text-[0.85rem] md:text-sm leading-relaxed pr-2 text-gray-300">
+              <div><strong>Objective:</strong> End the game with the lowest total card points. You start with 4 face-down cards and must swap/match to minimize their values.</div>
+              <hr className="border-white/10" />
+              <div><strong>1. Setup & Peeking:</strong> At the start of the round, you get 4 cards in a 2x2 matrix. You can peek at your <b>Bottom 2 Cards</b> (Card 3 and 4) to memorize their values.</div>
+              <div><strong>2. On Your Turn:</strong> Draw a card. You can:
+                <ul className="list-disc pl-5 mt-1">
+                  <li>Draw from <b>Deck</b>: peek at the card, then either <b>Replace</b> one of your cards with it, or <b>Discard</b> it.</li>
+                  <li>Draw from <b>Discard Pile</b>: you <b>Must</b> use it to replace one of your cards.</li>
+                </ul>
+              </div>
+              <div><strong>3. Special Card Actions (activated when discarded from Deck):</strong>
+                <ul className="list-disc pl-5 mt-1">
+                  <li><strong className="text-emerald-400">7 or 8 (Know your Fate):</strong> Peek at one of your own cards.</li>
+                  <li><strong className="text-cyan-400">9 or 10:</strong> Peek at one card of any of the opponents.</li>
+                  <li><strong className="text-violet-400">Queen:</strong> Swap one of your cards with an opponent&apos;s card without looking.</li>
+                  <li><strong className="text-amber-400">King:</strong> Swap one of your cards with an opponent&apos;s card after looking at both.</li>
+                </ul>
+              </div>
+              <div><strong>4. Card Points:</strong>
+                <ul className="list-disc pl-5 mt-1">
+                  <li>Aces = 1 point | 2 to 10 = face value | Queen & King = 10 points</li>
+                  <li><strong className="text-rose-400">Jack = -1 point! (Negative scoring card)</strong></li>
+                </ul>
+              </div>
+              <div><strong>5. Card Matching (Reduce Hand Size):</strong> When replacing a card, you can select <b>Multiple Matching Cards</b> from your hand (e.g. two 5s). If they match, they are all discarded, and the new card takes the slot of the first one. Mismatching gives you a penalty card!</div>
+              <div><strong>6. Calling CABO:</strong> When it is your turn, if you believe you have the lowest sum of card points, you can call <b>CABO</b>. You then complete your turn. Every other player gets one final turn. When it reaches your turn again, the round ends.
+                <ul className="list-disc pl-5 mt-1">
+                  <li>If the <b>CABO</b> caller has the lowest score: they <b>WIN</b> the round.</li>
+                </ul>
+              </div>
+              <div><strong>7. Series Play:</strong> Each round played is a standalone game. The system tracks how many games each player has won over multiple rounds to decide the overall series champion!</div>
+            </div>
+
+            <button 
+              onClick={() => setShowRulesModal(false)} 
+              className="button-glow w-full mt-5 py-2.5 text-xs"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
