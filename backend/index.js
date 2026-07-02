@@ -201,10 +201,11 @@ io.on('connection', (socket) => {
     }
 
     // Find the player to kick
-    const playerIndex = room.players.findIndex(p => p.id === targetPlayerId);
+    const playerIndex = room.players.findIndex(p => p.playerId === targetPlayerId);
     if (playerIndex === -1) return;
 
     const kickedPlayer = room.players[playerIndex];
+    const kickedSocketId = kickedPlayer.id;
     const isLobby = !room.status || room.status === 'lobby';
 
     if (isLobby) {
@@ -216,15 +217,19 @@ io.on('connection', (socket) => {
     }
 
     // Clean up mapping
-    socketToPlayerMap.delete(targetPlayerId);
+    if (kickedSocketId) {
+      socketToPlayerMap.delete(kickedSocketId);
+    }
 
     // Notify the kicked player's socket directly
-    io.to(targetPlayerId).emit('kicked');
+    if (kickedSocketId) {
+      io.to(kickedSocketId).emit('kicked');
 
-    // Make the kicked player's socket leave the channel
-    const targetSocket = io.sockets.sockets.get(targetPlayerId);
-    if (targetSocket) {
-      targetSocket.leave(code);
+      // Make the kicked player's socket leave the channel
+      const targetSocket = io.sockets.sockets.get(kickedSocketId);
+      if (targetSocket) {
+        targetSocket.leave(code);
+      }
     }
 
     if (isLobby) {
