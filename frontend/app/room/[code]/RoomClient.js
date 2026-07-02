@@ -23,6 +23,7 @@ export default function RoomClient({ code }) {
   const [actionRevealTitle, setActionRevealTitle] = useState('');
   const [spiedOnNotification, setSpiedOnNotification] = useState(null);
   const [showRulesModal, setShowRulesModal] = useState(false);
+  const [kickConfirmPlayer, setKickConfirmPlayer] = useState(null);
   
   // Swap action local selections
   const [swapMyCardIndex, setSwapMyCardIndex] = useState(null);
@@ -128,6 +129,12 @@ export default function RoomClient({ code }) {
       setSpiedOnNotification({ spiedBy, cardIndex });
     });
 
+    socket.on('kicked', () => {
+      console.log('CLIENT: kicked from room');
+      alert('You have been kicked from the room by the host.');
+      router.push('/');
+    });
+
     socket.on('error_message', (msg) => {
       setErrorMsg(msg);
     });
@@ -213,6 +220,13 @@ export default function RoomClient({ code }) {
 
   const handleBackToLobby = () => {
     router.push('/');
+  };
+
+  const handleKickPlayer = (targetPlayerId) => {
+    const p = players.find(player => player.id === targetPlayerId);
+    if (p) {
+      setKickConfirmPlayer({ id: targetPlayerId, name: p.name });
+    }
   };
 
   const handleHandCardClick = (idx) => {
@@ -535,11 +549,21 @@ export default function RoomClient({ code }) {
                     <span className="font-semibold">{p.name} {p.id === socketId && '(You)'}</span>
                   </div>
                   
-                  {p.isHost && (
-                    <span className="text-xs bg-amber-500/15 text-amber-500 px-2 py-0.5 rounded-full font-bold">
-                      HOST
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {p.isHost && (
+                      <span className="text-xs bg-amber-500/15 text-amber-500 px-2 py-0.5 rounded-full font-bold">
+                        HOST
+                      </span>
+                    )}
+                    {isHost && !p.isHost && (
+                      <button 
+                        onClick={() => handleKickPlayer(p.id)}
+                        className="text-xs bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white px-2.5 py-1 rounded-lg font-bold border border-rose-500/30 transition-all cursor-pointer"
+                      >
+                        Kick
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -656,7 +680,18 @@ export default function RoomClient({ code }) {
               </div>
               
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{opponent.name}</div>
+                <div className="flex items-center justify-center gap-1">
+                  <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{opponent.name}</span>
+                  {isHost && (
+                    <button 
+                      onClick={() => handleKickPlayer(opponent.id)}
+                      className="text-[0.6rem] bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white px-1.5 py-0.5 rounded font-bold border border-rose-500/30 transition-all cursor-pointer"
+                      title="Kick Player"
+                    >
+                      Kick
+                    </button>
+                  )}
+                </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--foreground-muted)', marginTop: '2px' }}>
                   Score: <strong style={{ color: 'white' }}>{opponent.score}</strong>
                 </div>
@@ -1319,6 +1354,40 @@ export default function RoomClient({ code }) {
           </div>
         );
       })()}
+
+      {/* --- KICK CONFIRMATION MODAL --- */}
+      {kickConfirmPlayer && (
+        <div className="flex items-center justify-center fixed top-0 left-0 w-screen h-screen bg-black/80 z-[2500]">
+          <div className="glass glass-heavy max-w-[340px] w-full flex flex-col items-center p-6 rounded-2xl border-rose-500/40 shadow-[0_0_20px_rgba(244,63,94,0.25)] text-center animate-pulse">
+            <div className="text-3xl mb-3">⚠️</div>
+            <h3 className="text-lg font-extrabold mb-3 text-rose-400">
+              Confirm Player Kick
+            </h3>
+            <p className="text-sm text-gray-300 mb-6 leading-relaxed">
+              Are you sure you want to kick <strong>{kickConfirmPlayer.name}</strong> from the room?
+            </p>
+            <div className="flex gap-3 w-full">
+              <button 
+                onClick={() => {
+                  if (socketRef.current) {
+                    socketRef.current.emit('kick_player', { roomCode, targetPlayerId: kickConfirmPlayer.id });
+                  }
+                  setKickConfirmPlayer(null);
+                }} 
+                className="button-glow flex-1 bg-rose-600 hover:bg-rose-500 text-xs py-2"
+              >
+                Yes, Kick
+              </button>
+              <button 
+                onClick={() => setKickConfirmPlayer(null)} 
+                className="button-outline flex-1 text-xs py-2"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- RULES MODAL DIALOG --- */}
       {showRulesModal && (

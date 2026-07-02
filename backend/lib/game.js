@@ -549,6 +549,49 @@ function transferOverloadCard(room, playerId, sourceCardIndex) {
   return { success: true };
 }
 
+function removePlayerMidGame(room, targetPlayerId) {
+  const playerIndex = room.players.findIndex(p => p.id === targetPlayerId);
+  if (playerIndex === -1) return;
+
+  const kickedPlayer = room.players[playerIndex];
+
+  // 1. If the kicked player called CABO, clear it
+  if (room.caboPlayerId === targetPlayerId) {
+    room.caboPlayerId = null;
+    room.logs.push(`cabo: CABO caller ${kickedPlayer.name} was removed. CABO call cancelled.`);
+  }
+
+  // 2. If the kicked player had a drawn card, clear it
+  if (room.activeDrawnCard && room.turnIndex === playerIndex) {
+    room.activeDrawnCard = null;
+    room.drawnCardSource = null;
+  }
+
+  // 3. Remove player from players array
+  room.players.splice(playerIndex, 1);
+  room.logs.push(`${kickedPlayer.name} was kicked from the game.`);
+
+  // 4. If less than 2 players left, reset back to lobby
+  if (room.players.length < 2) {
+    room.status = 'lobby';
+    room.logs.push(`Not enough players to continue. Room status reset to lobby.`);
+    return;
+  }
+
+  // 5. Adjust turnIndex
+  if (playerIndex < room.turnIndex) {
+    // Kicked player was before the active player, so active player shifted left by 1
+    room.turnIndex--;
+  } else if (playerIndex === room.turnIndex) {
+    // Kicked player WAS the active player
+    // Keep turnIndex the same (it now points to the next player), but ensure it wraps correctly
+    room.turnIndex = room.turnIndex % room.players.length;
+    // Log the new player's turn
+    const activePlayer = room.players[room.turnIndex];
+    room.logs.push(`It is now ${activePlayer.name}'s turn.`);
+  }
+}
+
 module.exports = {
   initRoomState,
   initNextRound,
@@ -560,5 +603,6 @@ module.exports = {
   executeCardAction,
   callCabo,
   overloadCard,
-  transferOverloadCard
+  transferOverloadCard,
+  removePlayerMidGame
 };

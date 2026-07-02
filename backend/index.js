@@ -185,6 +185,56 @@ io.on('connection', (socket) => {
     console.log(`Player ${playerName} joined Room ${code}`);
   });
 
+  // Kick Player (Host only)
+  socket.on('kick_player', ({ roomCode, targetPlayerId }) => {
+    const code = roomCode.toUpperCase();
+    if (!rooms.has(code)) return;
+    const room = rooms.get(code);
+
+    // Verify requester is the host
+    const requester = room.players.find(p => p.id === socket.id);
+    if (!requester || !requester.isHost) {
+      socket.emit('error_message', 'Only the host can kick players.');
+      return;
+    }
+
+    // Find the player to kick
+    const playerIndex = room.players.findIndex(p => p.id === targetPlayerId);
+    if (playerIndex === -1) return;
+
+    const kickedPlayer = room.players[playerIndex];
+    const isLobby = !room.status || room.status === 'lobby';
+
+    if (isLobby) {
+      // Remove player from room list
+      room.players.splice(playerIndex, 1);
+    } else {
+      // Game in progress, call engine handler to adjust turns/state
+      gameEngine.removePlayerMidGame(room, targetPlayerId);
+    }
+
+    // Clean up mapping
+    socketToPlayerMap.delete(targetPlayerId);
+
+    // Notify the kicked player's socket directly
+    io.to(targetPlayerId).emit('kicked');
+
+    // Make the kicked player's socket leave the channel
+    const targetSocket = io.sockets.sockets.get(targetPlayerId);
+    if (targetSocket) {
+      targetSocket.leave(code);
+    }
+
+    if (isLobby) {
+      // Broadcast updated player list to everyone in lobby
+      io.to(code).emit('room_updated', room.players);
+    } else {
+      // Broadcast updated game state to everyone
+      sendGameStateToAll(code, room);
+    }
+    console.log(`Player ${kickedPlayer.name} was kicked from Room ${code} by the host.`);
+  });
+
   // Start Game
   socket.on('start_game', ({ roomCode }) => {
     const code = roomCode.toUpperCase();
