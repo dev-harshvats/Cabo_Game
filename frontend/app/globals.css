@@ -275,7 +275,7 @@ dialog::backdrop {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 12px;
+  padding: 8px;
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
@@ -287,17 +287,17 @@ dialog::backdrop {
   justify-content: space-evenly;
   width: 100%;
   flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .opponent-box {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 10px 16px;
+  padding: 4px 10px;
   border-radius: 12px;
-  min-width: 140px;
+  min-width: 120px;
   transition: all 0.3s ease;
 }
 
@@ -308,16 +308,16 @@ dialog::backdrop {
 }
 
 .player-avatar {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: var(--border-glass-glow);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 700;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   border: 2px solid transparent;
   position: relative;
 }
@@ -329,7 +329,7 @@ dialog::backdrop {
 .opponent-cards {
   display: flex;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
 .opponent-card-back {
@@ -340,20 +340,21 @@ dialog::backdrop {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* Center Play Area (Roundtable Felt) */
+/* Center Play Area (Felt panel rectangle) */
 .center-board {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  width: 300px;
-  height: 300px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(21, 34, 56, 0.75) 0%, rgba(9, 15, 26, 0.95) 100%);
-  border: 2.5px solid var(--border-glass-glow);
-  box-shadow: 0 0 30px rgba(6, 182, 212, 0.25), inset 0 0 25px rgba(0, 0, 0, 0.8);
-  margin: 12px auto;
-  padding: 16px;
+  gap: 20px;
+  width: 100%;
+  max-width: 420px;
+  min-height: 135px;
+  border-radius: 16px;
+  background: radial-gradient(circle, rgba(21, 34, 56, 0.6) 0%, rgba(9, 15, 26, 0.8) 100%);
+  border: 1.5px solid var(--border-glass);
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.15), inset 0 0 15px rgba(0, 0, 0, 0.6);
+  margin: 4px auto;
+  padding: 8px;
   backdrop-filter: blur(12px);
   position: relative;
 }
